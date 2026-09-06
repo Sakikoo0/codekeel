@@ -9,6 +9,8 @@ from uuid import uuid4
 
 from coding_agent.agent.state import AgentState, RunStatus
 from coding_agent.agent.termination import TerminationPolicy
+from coding_agent.context.compaction import DeterministicContextManager
+from coding_agent.context.manager import ContextManager
 from coding_agent.context.repo import RepoContext
 from coding_agent.context.tool_output import ToolOutputManager
 from coding_agent.events.models import (
@@ -58,6 +60,7 @@ class Agent:
         clock: Callable[[], float] = time.monotonic,
         event_store: EventStore | None = None,
         tool_output_manager: ToolOutputManager | None = None,
+        context_manager: ContextManager | None = None,
     ) -> None:
         self.model = model
         self.workspace = workspace
@@ -70,6 +73,7 @@ class Agent:
         self.state = AgentState()
         self.event_store = event_store if event_store is not None else MemoryEventStore()
         self.tool_output_manager = tool_output_manager if tool_output_manager is not None else ToolOutputManager()
+        self.context_manager = context_manager if context_manager is not None else DeterministicContextManager()
         self.run_id: str | None = None
         self._event_sequence = 0
         self._tool_context: ToolContext | None = None
@@ -145,10 +149,11 @@ class Agent:
             self.state.status = status
             return
 
+        definitions = self.tool_registry.definitions()
+        self.state.messages = self.context_manager.prepare(self.state.messages, tools=definitions)
         self.state.steps += 1
         self.state.model_calls += 1
         self._emit(BudgetUpdated, **self._budget_payload())
-        definitions = self.tool_registry.definitions()
         self._emit(
             ModelRequested, model_call=self.state.model_calls,
             messages=self.state.messages, tools=definitions,
