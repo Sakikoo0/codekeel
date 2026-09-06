@@ -181,7 +181,9 @@ class ShellTool:
                 is_error=True,
             )
 
-        content = _truncate_tail(_format_result(result, self.config.timeout), self.config.max_output_bytes)
+        content = _format_result(result, self.config.timeout)
+        if not context.defer_output_limits:
+            content = _truncate_tail(content, self.config.max_output_bytes)
         return ToolResult(content=content, is_error=result.exit_code != 0 or result.timed_out)
 
 

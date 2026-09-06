@@ -10,6 +10,7 @@ from uuid import uuid4
 from coding_agent.agent.state import AgentState, RunStatus
 from coding_agent.agent.termination import TerminationPolicy
 from coding_agent.context.repo import RepoContext
+from coding_agent.context.tool_output import ToolOutputManager
 from coding_agent.events.models import (
     EVENT_ADAPTER,
     BudgetUpdated,
@@ -56,6 +57,7 @@ class Agent:
         budgets: BudgetLimits | None = None,
         clock: Callable[[], float] = time.monotonic,
         event_store: EventStore | None = None,
+        tool_output_manager: ToolOutputManager | None = None,
     ) -> None:
         self.model = model
         self.workspace = workspace
@@ -67,6 +69,7 @@ class Agent:
         )
         self.state = AgentState()
         self.event_store = event_store if event_store is not None else MemoryEventStore()
+        self.tool_output_manager = tool_output_manager if tool_output_manager is not None else ToolOutputManager()
         self.run_id: str | None = None
         self._event_sequence = 0
         self._tool_context: ToolContext | None = None
@@ -85,7 +88,7 @@ class Agent:
         )
         self.run_id = uuid4().hex
         self._event_sequence = 0
-        self._tool_context = ToolContext(workspace=self.workspace, run_id=self.run_id)
+        self._tool_context = ToolContext(workspace=self.workspace, run_id=self.run_id, defer_output_limits=True)
         self._started_at = self.termination_policy.clock()
         try:
             self._emit(RunStarted, messages=self.state.messages, budgets=self.termination_policy.budgets)
@@ -192,6 +195,18 @@ class Agent:
             self._emit(ToolFailed, tool_call_id=action.id, error_type="ToolResultError", result=result)
         else:
             self._emit(ToolCompleted, tool_call_id=action.id, result=result)
+        # Trace retains the original result; only the reduced result enters history.
+        assert self.run_id is not None
+        remaining = self.termination_policy.remaining_wall_time(started_at=self._started_at)
+        if remaining is not None and remaining <= 0:
+            self.state.status = RunStatus.TIMEOUT
+            return
+        try:
+            async with asyncio.timeout(remaining):
+                result = await self.tool_output_manager.process(result, workspace=self.workspace, run_id=self.run_id)
+        except TimeoutError:
+            self.state.status = RunStatus.TIMEOUT
+            return
         self.state.messages.append(
             Message(
                 role="tool",

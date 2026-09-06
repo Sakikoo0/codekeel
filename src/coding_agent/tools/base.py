@@ -29,10 +29,13 @@ class ToolContext:
 
     workspace: Workspace
     run_id: str
+    # Set by Agent only when a ToolOutputManager will bound the returned content.
+    defer_output_limits: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.run_id, str) or not self.run_id.strip():
             raise ValueError("run_id cannot be blank")
+
 
 class Tool(Protocol):
     """Executable tool with an explicit model-facing schema."""
@@ -47,7 +50,7 @@ class Tool(Protocol):
     async def execute(
         self,
         arguments: dict[str, Any],
-        context: ToolContext
+        context: ToolContext,
     ) -> ToolResult:
         """Execute one validated invocation in the supplied run context."""
         ...
