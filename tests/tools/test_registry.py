@@ -32,6 +32,7 @@ class FakeWorkspace:
         cwd: str | Path | None = None,
         env: Mapping[str, str] | None = None,
         timeout: float | None = 30.0,
+        inherit_env: bool = True,
     ) -> CommandResult:
         self.commands.append(command)
         return CommandResult(stdout="", stderr="failed\n", exit_code=2)
@@ -150,7 +151,8 @@ async def test_shell_tool_marks_nonzero_command_result_as_error() -> None:
     result = await ShellTool().execute({"command": "pytest"}, context)
 
     assert result.is_error is True
-    assert '"exit_code": 2' in result.content
+    assert "[stderr]\nfailed" in result.content
+    assert "[exit code: 2]" in result.content
     assert workspace.commands == ["pytest"]
 
 

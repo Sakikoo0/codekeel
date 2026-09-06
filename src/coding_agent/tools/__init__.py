@@ -13,16 +13,23 @@ from coding_agent.tools.filesystem import (
 )
 from coding_agent.tools.registry import (
     DuplicateToolError,
-    ShellTool,
     ToolArgumentsError,
     ToolRegistry,
     ToolRegistryError,
     UnknownToolError,
     default_tool_registry,
 )
+from coding_agent.tools.shell import (
+    DEFAULT_DENIED_COMMANDS,
+    DEFAULT_ENV_DENY_PATTERNS,
+    ShellConfig,
+    ShellTool,
+)
 
 __all__ = [
     "DuplicateToolError",
+    "DEFAULT_DENIED_COMMANDS",
+    "DEFAULT_ENV_DENY_PATTERNS",
     "EditFileTool",
     "FileSystemConfig",
     "FindFilesTool",
@@ -30,6 +37,7 @@ __all__ = [
     "ReadFileTool",
     "SearchFilesTool",
     "ShellTool",
+    "ShellConfig",
     "Tool",
     "ToolArgumentsError",
     "ToolContext",

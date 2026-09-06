@@ -44,6 +44,17 @@ async def test_docker_workspace_executes_command(docker_workspace) -> None:
     assert result.timed_out is False
 
 
+async def test_docker_workspace_can_disable_environment_inheritance(docker_workspace) -> None:
+    result = await docker_workspace.execute(
+        "printf '%s:%s' \"$SAFE\" \"${UNSET_VALUE:-absent}\"",
+        env={"SAFE": "visible"},
+        inherit_env=False,
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout == "visible:absent"
+
+
 async def test_docker_workspace_persists_files(docker_workspace, tmp_path) -> None:
     written = await docker_workspace.write_file("nested/example.txt", "from host API")
     command_result = await docker_workspace.execute("printf 'from command' > command.txt")

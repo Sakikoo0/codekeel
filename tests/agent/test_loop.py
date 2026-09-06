@@ -25,6 +25,7 @@ class FakeWorkspace:
         cwd: str | Path | None = None,
         env: Mapping[str, str] | None = None,
         timeout: float | None = 30.0,
+        inherit_env: bool = True,
     ) -> CommandResult:
         self.commands.append(command)
         return CommandResult(stdout="fake output\n", stderr="", exit_code=0)
@@ -127,12 +128,7 @@ async def test_agent_dispatches_read_write_shell_then_completes() -> None:
     assert write_result["content"] == "Wrote 8 characters (1 lines) to output.txt."
     assert write_result["is_error"] is False
     shell_result = json.loads(state.messages[7].content or "")
-    assert json.loads(shell_result["content"]) == {
-        "stdout": "fake output\n",
-        "stderr": "",
-        "exit_code": 0,
-        "timed_out": False,
-    }
+    assert shell_result["content"] == "[stdout]\nfake output\n\n[exit code: 0]"
     assert shell_result["is_error"] is False
     assert [state.messages[index].tool_call_id for index in (3, 5, 7)] == ["call-1", "call-2", "call-3"]
     assert state.messages[-1].content == "done"

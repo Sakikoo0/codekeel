@@ -21,6 +21,7 @@ class FakeWorkspace:
         cwd: str | Path | None = None,
         env: Mapping[str, str] | None = None,
         timeout: float | None = 30.0,
+        inherit_env: bool = True,
     ) -> CommandResult:
         return CommandResult(stdout=f"executed: {command}", stderr="", exit_code=0)
 

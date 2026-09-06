@@ -81,6 +81,7 @@ class DockerWorkspace:
         cwd: str | Path | None = None,
         env: Mapping[str, str] | None = None,
         timeout: float | None = None,
+        inherit_env: bool = True,
     ) -> CommandResult:
         """Execute a shell command inside the container."""
         return await self._execute_argv(
@@ -88,6 +89,7 @@ class DockerWorkspace:
             cwd=self._container_path(cwd or self.working_dir),
             env=env,
             timeout=self.command_timeout if timeout is None else timeout,
+            inherit_env=inherit_env,
         )
 
     async def read_file(self, path: str | Path) -> FileResult:
@@ -227,6 +229,7 @@ class DockerWorkspace:
         env: Mapping[str, str] | None,
         timeout: float | None,
         input_text: str | None = None,
+        inherit_env: bool = True,
     ) -> CommandResult:
         await self.start()
         assert self._container_id is not None
@@ -234,9 +237,13 @@ class DockerWorkspace:
         if input_text is not None:
             args.append("-i")
         args.extend(["--workdir", cwd])
-        for key, value in (env or {}).items():
-            args.extend(["--env", f"{key}={value}"])
-        args.extend([self._container_id, *command])
+        if inherit_env:
+            for key, value in (env or {}).items():
+                args.extend(["--env", f"{key}={value}"])
+            process_command = list(command)
+        else:
+            process_command = ["env", "-i", *(f"{key}={value}" for key, value in (env or {}).items()), *command]
+        args.extend([self._container_id, *process_command])
 
         try:
             result = await self._run_cli(args, timeout=timeout, input_text=input_text)

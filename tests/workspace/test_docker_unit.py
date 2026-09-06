@@ -61,6 +61,25 @@ async def test_docker_workspace_network_must_be_explicitly_enabled(tmp_path, mon
     assert "--network" not in runner.calls[0]
 
 
+async def test_docker_workspace_can_execute_with_an_exact_environment(tmp_path, monkeypatch) -> None:
+    runner = SuccessfulDockerRunner()
+    monkeypatch.setattr("coding_agent.workspace.docker.subprocess.run", runner)
+    workspace = DockerWorkspace(tmp_path, image="sandbox:test")
+
+    await workspace.execute("env", env={"SAFE": "visible"}, inherit_env=False)
+
+    exec_command = next(call for call in runner.calls if call[1] == "exec")
+    container_index = exec_command.index("container-123")
+    assert exec_command[container_index + 1 :] == [
+        "env",
+        "-i",
+        "SAFE=visible",
+        "sh",
+        "-lc",
+        "env",
+    ]
+
+
 async def test_docker_workspace_removes_container_when_start_fails(tmp_path, monkeypatch) -> None:
     calls: list[list[str]] = []
 

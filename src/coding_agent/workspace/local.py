@@ -25,11 +25,13 @@ class LocalWorkspace:
         cwd: str | Path | None = None,
         env: Mapping[str, str] | None = None,
         timeout: float | None = 30.0,
+        inherit_env: bool = True,
     ) -> CommandResult:
         """Execute a command, defaulting to the root and inherited environment.
 
         Relative working directories are resolved from ``root``. Environment
-        values supplied by the caller override inherited host values.
+        values supplied by the caller override inherited host values unless
+        inheritance is explicitly disabled.
         """
         return await asyncio.to_thread(
             self._execute,
@@ -37,6 +39,7 @@ class LocalWorkspace:
             cwd=cwd,
             env=env,
             timeout=timeout,
+            inherit_env=inherit_env,
         )
 
     def _execute(
@@ -46,13 +49,19 @@ class LocalWorkspace:
         cwd: str | Path | None,
         env: Mapping[str, str] | None,
         timeout: float | None,
+        inherit_env: bool,
     ) -> CommandResult:
-        working_dir = self.root if cwd is None else self.root / Path(cwd)
+        working_dir = self._workspace_path("." if cwd is None else cwd)
+        if not working_dir.exists():
+            raise FileNotFoundError("The working directory does not exist")
+        if not working_dir.is_dir():
+            raise NotADirectoryError("The working directory is not a directory")
+        process_env = (dict(os.environ) if inherit_env else {}) | dict(env or {})
         process = subprocess.Popen(
             command,
             shell=True,
             cwd=working_dir,
-            env=os.environ | dict(env or {}),
+            env=process_env,
             text=True,
             encoding="utf-8",
             errors="replace",

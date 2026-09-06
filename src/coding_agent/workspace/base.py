@@ -16,9 +16,10 @@ class Workspace(Protocol):
         *,
         cwd: str | Path | None = None,
         env: Mapping[str, str] | None = None,
-        timeout: float | None = 30.0
+        timeout: float | None = 30.0,
+        inherit_env: bool = True
     ) -> CommandResult:
-        """Execute a command with optional cwd, environment overrides, and timeout."""
+        """Execute with a contained cwd, optional environment, and timeout."""
         ...
 
     async def read_file(self, path: str | Path) -> FileResult:

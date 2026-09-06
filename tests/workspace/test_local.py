@@ -101,6 +101,26 @@ async def test_local_workspace_merges_and_overrides_environment(tmp_path, monkey
     assert result.stdout.splitlines() == ["inherited", "workspace"]
 
 
+async def test_local_workspace_can_disable_environment_inheritance(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("HOST_SECRET", "hidden")
+    code = "import os; print(os.environ.get('HOST_SECRET', 'absent')); print(os.environ['SAFE'])"
+    command = f"{shlex.quote(sys.executable)} -c {shlex.quote(code)}"
+
+    result = await LocalWorkspace(tmp_path).execute(
+        command,
+        env={"SAFE": "visible"},
+        inherit_env=False,
+    )
+
+    assert result.stdout.splitlines() == ["absent", "visible"]
+
+
+@pytest.mark.parametrize("cwd", ["..", "../outside", "/tmp"])
+async def test_local_workspace_rejects_command_cwd_escape(tmp_path, cwd) -> None:
+    with pytest.raises(PermissionError):
+        await LocalWorkspace(tmp_path).execute("pwd", cwd=cwd)
+
+
 @pytest.mark.parametrize("path", ["../outside.txt", "../../outside.txt"])
 async def test_local_workspace_file_operations_reject_parent_traversal(tmp_path, path) -> None:
     workspace = LocalWorkspace(tmp_path)
