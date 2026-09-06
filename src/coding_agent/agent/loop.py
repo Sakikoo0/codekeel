@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from coding_agent.agent.state import AgentState, RunStatus
 from coding_agent.agent.termination import TerminationPolicy
+from coding_agent.context.repo import RepoContext
 from coding_agent.models.base import Message, Model, ModelResponse, ToolCall, ToolResult
 from coding_agent.runtime.budgets import BudgetLimits
 from coding_agent.tools import ToolArgumentsError, ToolContext, ToolRegistry, UnknownToolError, default_tool_registry
@@ -52,10 +53,13 @@ class Agent:
         self._tool_context: ToolContext | None = None
         self._started_at: float | None = None
 
-    async def run(self, task: str) -> AgentState:
+    async def run(self, task: str, *, repo_context: RepoContext | None = None) -> AgentState:
+        system_prompt = self.system_prompt
+        if repo_context is not None:
+            system_prompt += "\n\n" + repo_context.render()
         self.state = AgentState(
             messages=[
-                Message(role="system", content=self.system_prompt),
+                Message(role="system", content=system_prompt),
                 Message(role="user", content=task),
             ],
             status=RunStatus.RUNNING,
