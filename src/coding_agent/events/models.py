@@ -62,6 +62,13 @@ class FailurePayload(FinishPayload):
     error_type: str
 
 
+class CompactionPayload(Payload):
+    before_estimated_tokens: int = Field(ge=0, strict=True)
+    after_estimated_tokens: int = Field(ge=0, strict=True)
+    messages_removed: int = Field(ge=1, strict=True)
+    summary_model_calls: int = Field(ge=1, strict=True)
+
+
 class EventEnvelope(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -116,9 +123,14 @@ class RunFailed(EventEnvelope):
     payload: FailurePayload
 
 
+class ContextCompacted(EventEnvelope):
+    type: Literal["ContextCompacted"] = "ContextCompacted"
+    payload: CompactionPayload
+
+
 Event = Annotated[
     RunStarted | ModelRequested | ModelResponded | ToolCalled | ToolCompleted
-    | ToolFailed | BudgetUpdated | RunFinished | RunFailed,
+    | ToolFailed | BudgetUpdated | RunFinished | RunFailed | ContextCompacted,
     Field(discriminator="type"),
 ]
 EVENT_ADAPTER = TypeAdapter(Event)

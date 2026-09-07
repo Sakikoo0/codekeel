@@ -92,6 +92,26 @@ def _turns(messages: list[Message]) -> list[list[int]]:
     return turns
 
 
+def clamp_history(messages: list[Message], config: ContextConfig) -> list[Message]:
+    """Copy history and bound pathological assistant parts without evicting turns."""
+    history = [message.model_copy(deep=True) for message in messages]
+    for message in history:
+        if message.role == "assistant":
+            if message.content is not None:
+                message.content = _clamp(message.content, config.max_message_chars)
+            for call in message.tool_calls:
+                arguments = _json(call.arguments)
+                if len(arguments) > config.max_message_chars:
+                    # Historical arguments only: execution has already happened.
+                    limit = config.max_message_chars
+                    replacement = {"_clamped": _clamp(arguments, limit)}
+                    while len(_json(replacement)) > config.max_message_chars:
+                        limit = max(len(_CLAMP_MARKER) + 2, limit // 2)
+                        replacement = {"_clamped": _clamp(arguments, limit)}
+                    call.arguments = replacement
+    return history
+
+
 class DeterministicContextManager:
     """Reduce history without I/O or model calls; never alter the caller's objects."""
 
@@ -102,21 +122,7 @@ class DeterministicContextManager:
         self, messages: list[Message], *, tools: list[ToolDefinition] | None = None,
     ) -> list[Message]:
         turns = _turns(messages)
-        history = [message.model_copy(deep=True) for message in messages]
-        for message in history:
-            if message.role == "assistant":
-                if message.content is not None:
-                    message.content = _clamp(message.content, self.config.max_message_chars)
-                for call in message.tool_calls:
-                    arguments = _json(call.arguments)
-                    if len(arguments) > self.config.max_message_chars:
-                        # Historical arguments only: execution has already happened.
-                        limit = self.config.max_message_chars
-                        replacement = {"_clamped": _clamp(arguments, limit)}
-                        while len(_json(replacement)) > self.config.max_message_chars:
-                            limit = max(len(_CLAMP_MARKER) + 2, limit // 2)
-                            replacement = {"_clamped": _clamp(arguments, limit)}
-                        call.arguments = replacement
+        history = clamp_history(messages, self.config)
 
         def fits(candidate: list[Message]) -> bool:
             return estimate_context_tokens(candidate, tools) <= self.config.max_tokens

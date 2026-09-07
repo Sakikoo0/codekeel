@@ -9,13 +9,14 @@ from uuid import uuid4
 
 from coding_agent.agent.state import AgentState, RunStatus
 from coding_agent.agent.termination import TerminationPolicy
-from coding_agent.context.compaction import DeterministicContextManager
-from coding_agent.context.manager import ContextManager
+from coding_agent.context.compaction import DeterministicContextManager, estimate_context_tokens
+from coding_agent.context.manager import ContextManager, SummaryContextManager
 from coding_agent.context.repo import RepoContext
 from coding_agent.context.tool_output import ToolOutputManager
 from coding_agent.events.models import (
     EVENT_ADAPTER,
     BudgetUpdated,
+    ContextCompacted,
     EventEnvelope,
     ModelRequested,
     ModelResponded,
@@ -150,7 +151,16 @@ class Agent:
             return
 
         definitions = self.tool_registry.definitions()
-        self.state.messages = self.context_manager.prepare(self.state.messages, tools=definitions)
+        try:
+            await self._prepare_context(definitions)
+        except TimeoutError:
+            self.state.status = RunStatus.TIMEOUT
+            return
+        # Summary requests share all parent limits; approval before compaction is
+        # not permission to send another request after compaction spends usage.
+        if status := self.termination_policy.evaluate(self.state, started_at=self._started_at):
+            self.state.status = status
+            return
         self.state.steps += 1
         self.state.model_calls += 1
         self._emit(BudgetUpdated, **self._budget_payload())
@@ -220,15 +230,52 @@ class Agent:
             )
         )
 
-    async def _complete_with_deadline(self, definitions: list[ToolDefinition]) -> ModelResponse:
+    async def _prepare_context(self, definitions: list[ToolDefinition]) -> None:
+        manager = self.context_manager
+        limit = self.termination_policy.budgets.max_model_calls
+        # Reserve the pending main request. With only one slot left, use the
+        # deterministic path rather than silently exceeding the parent's ceiling.
+        can_summarize = limit is None or self.state.model_calls + 1 < limit
+        if isinstance(manager, SummaryContextManager) and can_summarize:
+            request = manager.plan_summary(self.state.messages, tools=definitions)
+            if request is not None:
+                assert self._started_at is not None
+                if status := self.termination_policy.evaluate(self.state, started_at=self._started_at):
+                    self.state.status = status
+                    return
+                self.state.model_calls += 1
+                self._emit(BudgetUpdated, **self._budget_payload())
+                self._emit(ModelRequested, model_call=self.state.model_calls, messages=request.messages, tools=[])
+                response = await self._complete_with_deadline(
+                    [], model=request.model, messages=request.messages,
+                )
+                # Charge even a malformed, tool-calling or oversized summary.
+                self.state.add_usage(response.usage)
+                self._emit(ModelResponded, model_call=self.state.model_calls, response=response)
+                self._emit(BudgetUpdated, **self._budget_payload())
+                prepared = manager.apply_summary(request, response)
+                self._emit(
+                    ContextCompacted, before_estimated_tokens=request.before_estimated_tokens,
+                    after_estimated_tokens=estimate_context_tokens(prepared, definitions),
+                    messages_removed=request.messages_removed, summary_model_calls=1,
+                )
+                self.state.messages = prepared
+                return
+        self.state.messages = manager.prepare(self.state.messages, tools=definitions)
+
+    async def _complete_with_deadline(
+        self, definitions: list[ToolDefinition], *, model: Model | None = None, messages: list[Message] | None = None,
+    ) -> ModelResponse:
         assert self._started_at is not None
+        selected_model = model if model is not None else self.model
+        selected_messages = messages if messages is not None else self.state.messages
         remaining = self.termination_policy.remaining_wall_time(started_at=self._started_at)
         if remaining is None:
-            return await self.model.complete(self.state.messages, tools=definitions)
+            return await selected_model.complete(selected_messages, tools=definitions)
         if remaining <= 0:
             raise TimeoutError
         async with asyncio.timeout(remaining):
-            return await self.model.complete(self.state.messages, tools=definitions)
+            return await selected_model.complete(selected_messages, tools=definitions)
 
     async def _execute_tool_with_deadline(self, action: ToolCall) -> ToolResult:
         assert self._started_at is not None
