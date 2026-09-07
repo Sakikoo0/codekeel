@@ -227,12 +227,24 @@ def reject_run(
 
 @app.command("eval")
 def evaluate_tasks(
-    dataset: Annotated[Path, typer.Argument(exists=True, help="Trusted local YAML task file or directory.")],
     model: Annotated[str, typer.Option(help="Provider/model identifier; a fresh adapter per task.")],
-    root: Annotated[Path, typer.Option(help="Trusted output directory for evaluation results and traces.")]
+    dataset: Annotated[Path | None, typer.Argument(exists=True, help="Trusted local YAML task file or directory.")]
+    = None,
+    dataset_option: Annotated[Path | None, typer.Option("--dataset", exists=True,
+                                                      help="Use instead of the positional dataset.")] = None,
+    config: Annotated[list[Path] | None, typer.Option("--config", exists=True, dir_okay=False,
+                                                     help="Config; repeat for independent comparisons in order.")]
+    = None,
+    root: Annotated[Path, typer.Option(file_okay=False,
+                                      help="Trusted output directory; created if missing. Defaults to .agent/evals.")]
     = Path(".agent/evals"),
 ) -> None:
-    """Evaluate copied local repositories. Exit 0 only if every task verifies successfully."""
+    """Evaluate copied local repositories using one dataset source.
+
+    JSON records and report paths go to stdout; comparison tables and errors go
+    to stderr. Exit codes: 0 all tasks passed, 1 evaluation or input-file failure,
+    2 invalid CLI arguments. Without --config, use the default harness.
+    """
     import asyncio
     import json
 
@@ -241,12 +253,44 @@ def evaluate_tasks(
 
     if not model.strip() or "\x00" in model:
         raise typer.BadParameter("Model must be nonblank and contain no NUL.")
+    if (dataset is None) == (dataset_option is None):
+        raise typer.BadParameter("Supply exactly one positional dataset or --dataset.")
     try:
-        tasks = load_dataset(dataset)
-        evaluation = asyncio.run(run_dataset(tasks, model_factory=lambda: _resume_model(model), root=root))
+        tasks = load_dataset(dataset if dataset is not None else dataset_option)
     except Exception:
-        typer.echo("Unable to evaluate dataset: configuration, workspace, runtime, or storage failure.", err=True)
+        typer.echo("Unable to evaluate dataset: task files are invalid, unreadable, or reference unsafe repositories.",
+                   err=True)
         raise typer.Exit(1) from None
+    configs = []
+    if config:
+        from codekeel.evals.config import load_config
+        from codekeel.evals.experiments import run_experiments
+
+        try:
+            configs = [load_config(path) for path in config]
+            if len({item.name for item in configs}) != len(configs):
+                raise ValueError("Duplicate config names")
+        except Exception:
+            typer.echo("Unable to evaluate configs: check YAML fields, boolean toggles, and unique config names.",
+                       err=True)
+            raise typer.Exit(1) from None
+    try:
+        if configs:
+            comparison = asyncio.run(run_experiments(tasks, configs,
+                                                     model_factory=lambda: _resume_model(model), root=root))
+        else:
+            comparison = None
+            evaluation = asyncio.run(run_dataset(tasks, model_factory=lambda: _resume_model(model), root=root))
+    except Exception:
+        typer.echo("Unable to evaluate dataset: workspace, runtime, or output storage failure.", err=True)
+        raise typer.Exit(1) from None
+    if comparison is not None:
+        typer.echo(comparison.report.markdown(), err=True)
+        typer.echo(json.dumps({"results_path": str(comparison.directory / "results.json"),
+                               "summary_path": str(comparison.directory / "summary.md")}))
+        if not all(result.success for group in comparison.report.configurations for result in group.results):
+            raise typer.Exit(1)
+        return
     for result in evaluation.results:
         typer.echo(json.dumps(result.model_dump(mode="json"), ensure_ascii=True))
     typer.echo(json.dumps({"results_path": str(evaluation.directory / "results.jsonl")}))

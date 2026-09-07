@@ -1,0 +1,6 @@
+name: baseline
+repo_context: false
+tool_output_limits: false
+context_compaction: false
+planning: false
+explorer: false

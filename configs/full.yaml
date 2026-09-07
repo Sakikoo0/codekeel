@@ -1,0 +1,6 @@
+name: full
+repo_context: true
+tool_output_limits: true
+context_compaction: true
+planning: true
+explorer: true

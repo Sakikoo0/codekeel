@@ -1,5 +1,6 @@
 """Sequential evaluation composition over the existing agent and event runtime."""
 
+import asyncio
 import os
 import shutil
 import stat
@@ -12,6 +13,8 @@ from uuid import uuid4
 
 from codekeel.agent import Agent
 from codekeel.agent.state import AgentState, RunStatus
+from codekeel.context.repo import discover_repo_context
+from codekeel.evals.config import ExperimentConfig, configure_agent
 from codekeel.evals.dataset import DatasetTask
 from codekeel.evals.scorer import EvaluationResult, score
 from codekeel.events.jsonl import JsonlEventStore
@@ -53,6 +56,7 @@ def _copy_repository(source: Path, destination: Path) -> None:
 async def run_dataset(
     tasks: Sequence[DatasetTask], *, model_factory: Callable[[], Model],
     root: str | Path = ".agent/evals", workspace_factory: Callable[[Path], Workspace] = LocalWorkspace,
+    config: ExperimentConfig | None = None,
 ) -> EvaluationRun:
     """Factories must return fresh instances. Persist each result before continuing.
 
@@ -91,7 +95,13 @@ async def run_dataset(
                         verification_policy=VerificationPolicy(test_command=entry.task.verification.command,
                                                                max_verification_attempts=1),
                     )
-                    await agent.run(entry.task.task)
+                    repo_context = None
+                    if config is not None:
+                        configure_agent(agent, config, model_factory=model_factory)
+                        if config.repo_context:
+                            async with asyncio.timeout(entry.task.limits.timeout):
+                                repo_context = await discover_repo_context(workspace)
+                    await agent.run(entry.task.task, repo_context=repo_context)
                 except EventStoreError:
                     raise
                 except Exception:
@@ -100,8 +110,8 @@ async def run_dataset(
                 finally:
                     if workspace is not None:
                         await workspace.close()
-            state = agent.state if agent is not None else AgentState(status=RunStatus.FAILED)
             run_id = agent.run_id if agent is not None else None
+            state = agent.state if run_id is not None else AgentState(status=RunStatus.FAILED)
             trace = events.read(run_id) if run_id is not None else TraceReadResult(())
             trace_path = str(directory / ".agent" / "runs" / run_id / "events.jsonl") if run_id else None
             result = score(entry.task.id, run_id or uuid4().hex, state, trace,

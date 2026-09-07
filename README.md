@@ -328,7 +328,6 @@ not treat a model's completion message as evidence of success.
 - [x] Unified `run`, `inspect`, `resume`, `approve`, and `reject` CLI
 - [ ] Deterministic evaluation harness
 - [ ] Comparative configuration benchmarks
-- [ ] REST/WebSocket agent server
 - [ ] benchmark report
 - [ ] Multi-turn interactive terminal sessions, preserving the existing non-interactive CLI
 

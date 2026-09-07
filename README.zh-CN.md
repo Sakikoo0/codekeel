@@ -302,7 +302,6 @@ print(state.status)
 - [x] 统一的 `run`、`inspect`、`resume`、`approve` 和 `reject` CLI
 - [ ] 确定性评测框架
 - [ ] 配置对比 benchmark
-- [ ] REST/WebSocket Agent Server
 - [ ] benchmark 报告
 - [ ] 多轮交互式终端会话，保留现有非交互 CLI
 
