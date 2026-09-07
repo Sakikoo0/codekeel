@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
+from pydantic import JsonValue
+
 from coding_agent.agent.state import AgentState, RunStatus
 from coding_agent.agent.termination import TerminationPolicy
 from coding_agent.context.compaction import DeterministicContextManager, estimate_context_tokens
@@ -29,6 +31,8 @@ from coding_agent.events.models import (
 )
 from coding_agent.events.store import EventStore, EventStoreError, MemoryEventStore
 from coding_agent.models.base import Message, Model, ModelResponse, ToolCall, ToolDefinition, ToolResult
+from coding_agent.persistence.checkpoint import Checkpoint, RunMetadata, WorkspaceMetadata
+from coding_agent.persistence.store import CheckpointStore, PersistenceError, ResumeError
 from coding_agent.runtime.budgets import BudgetLimits
 from coding_agent.tools import ToolArgumentsError, ToolContext, ToolRegistry, UnknownToolError, default_tool_registry
 from coding_agent.workspace.base import Workspace
@@ -62,6 +66,10 @@ class Agent:
         event_store: EventStore | None = None,
         tool_output_manager: ToolOutputManager | None = None,
         context_manager: ContextManager | None = None,
+        checkpoint_store: CheckpointStore | None = None,
+        workspace_metadata: WorkspaceMetadata | None = None,
+        run_metadata: RunMetadata | None = None,
+        plan: JsonValue = None,
     ) -> None:
         self.model = model
         self.workspace = workspace
@@ -75,12 +83,25 @@ class Agent:
         self.event_store = event_store if event_store is not None else MemoryEventStore()
         self.tool_output_manager = tool_output_manager if tool_output_manager is not None else ToolOutputManager()
         self.context_manager = context_manager if context_manager is not None else DeterministicContextManager()
+        if checkpoint_store is not None and workspace_metadata is None:
+            raise ValueError("Persistence requires explicit workspace metadata")
+        if checkpoint_store is not None and event_store is None:
+            raise ValueError("Persistence requires an explicit event store")
+        self.checkpoint_store = checkpoint_store
+        self.workspace_metadata = workspace_metadata
+        self.run_metadata = run_metadata if run_metadata is not None else RunMetadata()
+        self.plan = plan
+        self._checkpoint_revision = 0
+        self._last_event_id = ""
+        self._at_boundary = False
         self.run_id: str | None = None
         self._event_sequence = 0
         self._tool_context: ToolContext | None = None
         self._started_at: float | None = None
 
     async def run(self, task: str, *, repo_context: RepoContext | None = None) -> AgentState:
+        if self.checkpoint_store is not None:
+            await self._validate_workspace()
         system_prompt = self.system_prompt
         if repo_context is not None:
             system_prompt += "\n\n" + repo_context.render()
@@ -93,26 +114,126 @@ class Agent:
         )
         self.run_id = uuid4().hex
         self._event_sequence = 0
+        self._checkpoint_revision = 0
+        self._last_event_id = ""
+        self._at_boundary = True
         self._tool_context = ToolContext(workspace=self.workspace, run_id=self.run_id, defer_output_limits=True)
         self._started_at = self.termination_policy.clock()
+        return await self._drive(new=True)
+
+    async def resume(self, run_id: str) -> AgentState:
+        """Restore a settled checkpoint and continue the next model step, never replay."""
+        if self.checkpoint_store is None:
+            raise ResumeError("Resume requires a checkpoint store")
+        checkpoint = self.checkpoint_store.load(run_id)
+        if not checkpoint.ready:
+            raise ResumeError("Run was interrupted during a step; automatic replay is unsafe")
+        if checkpoint.workspace != self.workspace_metadata:
+            raise ResumeError("Workspace metadata does not match the checkpoint")
+        await self._validate_workspace()
+        if checkpoint.tools != self.tool_registry.definitions():
+            raise ResumeError("Tool definitions do not match the checkpoint")
+        trace = self.event_store.read(run_id)
+        if (trace.warning or not trace.events or len(trace.events) != checkpoint.event_sequence
+                or trace.events[-1].event_id != checkpoint.last_event_id):
+            raise ResumeError("Checkpoint and event log do not share the same settled frontier")
+        start = trace.events[0]
+        if not isinstance(start, RunStarted) or start.payload.budgets != checkpoint.budgets:
+            raise ResumeError("Persisted budgets do not match the original run")
+        accounting = next((event.payload for event in reversed(trace.events)
+                           if isinstance(event, (BudgetUpdated, RunFinished, RunFailed))), None)
+        expected = {"usage": checkpoint.state.usage, "steps": checkpoint.state.steps,
+                    "model_calls": checkpoint.state.model_calls, "tool_calls": checkpoint.state.tool_calls}
+        if accounting is not None and any(getattr(accounting, key) != value for key, value in expected.items()):
+            raise ResumeError("Checkpoint accounting does not match the trace")
+        if accounting is None and (checkpoint.state.model_calls or checkpoint.state.tool_calls
+                                   or checkpoint.state.steps or checkpoint.state.usage != AgentState().usage):
+            raise ResumeError("Initial checkpoint has unrecorded usage")
+        if isinstance(trace.events[-1], RunFinished) and trace.events[-1].payload.status != checkpoint.state.status:
+            raise ResumeError("Checkpoint terminal status does not match the trace")
+        self.state = checkpoint.state.model_copy(deep=True)
+        if self.state.status not in {
+            RunStatus.RUNNING, RunStatus.COMPLETED, RunStatus.MAX_STEPS, RunStatus.MAX_COST, RunStatus.MAX_TOKENS,
+        }:
+            raise ResumeError("Checkpoint status cannot be resumed")
+        self.run_id = checkpoint.run_id
+        self._event_sequence = checkpoint.event_sequence
+        self._last_event_id = checkpoint.last_event_id
+        self._checkpoint_revision = checkpoint.revision
+        self.run_metadata = checkpoint.metadata
+        self.plan = checkpoint.plan
+        self.termination_policy = TerminationPolicy(budgets=checkpoint.budgets, clock=self.termination_policy.clock)
+        self._started_at = self.termination_policy.clock() - checkpoint.elapsed_seconds
+        self._tool_context = ToolContext(workspace=self.workspace, run_id=run_id, defer_output_limits=True)
+        self._at_boundary = True
+        if self.state.status is not RunStatus.RUNNING:
+            # A process may die after saving its terminal step but before writing
+            # RunFinished. Complete that bookkeeping once, without calling a model.
+            if not isinstance(trace.events[-1], RunFinished):
+                self._at_boundary = False
+                self.save_checkpoint()
+                self._emit(RunFinished, status=self.state.status, **self._budget_payload())
+                self._at_boundary = True
+                self.save_checkpoint()
+            return self.state
+        return await self._drive(new=False)
+
+    async def _validate_workspace(self) -> None:
+        assert self.workspace_metadata is not None
+        info = await self.workspace.inspect_path(".")
+        if not info.exists or not info.is_directory or info.canonical_path != ".":
+            raise ResumeError("Workspace root is missing or is not a canonical directory")
+
+    def save_checkpoint(self) -> None:
+        """Save the current boundary (including opaque plan and summary messages)."""
+        if self.checkpoint_store is None:
+            return
+        assert self.workspace_metadata is not None and self.run_id is not None and self._started_at is not None
         try:
-            self._emit(RunStarted, messages=self.state.messages, budgets=self.termination_policy.budgets)
+            checkpoint = Checkpoint(
+                run_id=self.run_id, revision=self._checkpoint_revision + 1, ready=self._at_boundary,
+                event_sequence=self._event_sequence, last_event_id=self._last_event_id,
+                state=self.state, budgets=self.termination_policy.budgets,
+                elapsed_seconds=max(0.0, self.termination_policy.clock() - self._started_at),
+                workspace=self.workspace_metadata, metadata=self.run_metadata,
+                tools=self.tool_registry.definitions(), plan=self.plan,
+            )
+            self.checkpoint_store.save(checkpoint, expected_revision=self._checkpoint_revision)
+        except Exception as error:
+            raise PersistenceError("Unable to save checkpoint") from error
+        self._checkpoint_revision = checkpoint.revision
+
+    async def _drive(self, *, new: bool) -> AgentState:
+        try:
+            if new:
+                self._emit(RunStarted, messages=self.state.messages, budgets=self.termination_policy.budgets)
+                self.save_checkpoint()
             while self.state.status is RunStatus.RUNNING:
                 await self.step()
             self._emit(RunFinished, status=self.state.status, **self._budget_payload())
-        except EventStoreError:
+            self.save_checkpoint()
+        except (EventStoreError, PersistenceError):
             # A broken sink cannot reliably record its own failure; stop immediately.
             self.state.status = RunStatus.FAILED
             raise
         except asyncio.CancelledError as error:
             self.state.status = RunStatus.CANCELLED
             self._record_terminal_error(error, cancelled=True)
+            self._save_interrupted(error)
             raise
         except Exception as error:
             self.state.status = RunStatus.FAILED
             self._record_terminal_error(error)
+            self._save_interrupted(error)
             raise
         return self.state
+
+    def _save_interrupted(self, error: BaseException) -> None:
+        self._at_boundary = False
+        try:
+            self.save_checkpoint()
+        except PersistenceError:
+            error.add_note("The interrupted checkpoint could not be recorded.")
 
     def _budget_payload(self) -> dict[str, Any]:
         return {
@@ -131,6 +252,7 @@ class Agent:
         except Exception as error:
             raise EventStoreError("Unable to append runtime event") from error
         self._event_sequence += 1
+        self._last_event_id = event.event_id
 
     def _record_terminal_error(self, error: BaseException, *, cancelled: bool = False) -> None:
         try:
@@ -144,6 +266,19 @@ class Agent:
             error.add_note("The terminal event could not be recorded.")
 
     async def step(self) -> None:
+        if self._tool_context is None or self._started_at is None:
+            raise RuntimeError("Agent step requires an active run")
+        # Persist an in-flight marker before any model/tool side effects. CAS
+        # stops a stale second runtime before it can repeat the same step.
+        self._at_boundary = False
+        self.save_checkpoint()
+        await self._step()
+        self._at_boundary = self.state.status in {
+            RunStatus.RUNNING, RunStatus.COMPLETED, RunStatus.MAX_STEPS, RunStatus.MAX_COST, RunStatus.MAX_TOKENS,
+        }
+        self.save_checkpoint()
+
+    async def _step(self) -> None:
         if self._tool_context is None or self._started_at is None:
             raise RuntimeError("Agent step requires an active run")
         if status := self.termination_policy.evaluate(self.state, started_at=self._started_at):

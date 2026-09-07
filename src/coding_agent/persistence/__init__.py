@@ -1,0 +1,1 @@
+"""Checkpoint contracts; storage backends are imported explicitly."""
