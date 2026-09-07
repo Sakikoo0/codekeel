@@ -1,6 +1,6 @@
 """Contracts shared by tools and the tool runtime."""
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -34,6 +34,7 @@ class ToolContext:
     # Set by Agent only when a ToolOutputManager will bound the returned content.
     defer_output_limits: bool = False
     update_plan: Callable[[Plan], None] | None = None
+    delegate_explore: Callable[[str], Awaitable[ToolResult]] | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.run_id, str) or not self.run_id.strip():

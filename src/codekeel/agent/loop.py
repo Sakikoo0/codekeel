@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
+from codekeel.agent.explorer import ExplorerAgent
 from codekeel.agent.state import AgentState, RunStatus
 from codekeel.agent.termination import TerminationPolicy
 from codekeel.context.compaction import DeterministicContextManager, estimate_context_tokens
@@ -40,6 +41,7 @@ from codekeel.runtime.budgets import BudgetLimits
 from codekeel.runtime.policy import ActionPolicy, Decision
 from codekeel.runtime.verification import VerificationPolicy
 from codekeel.tools import ToolArgumentsError, ToolContext, ToolRegistry, UnknownToolError, default_tool_registry
+from codekeel.tools.explorer import DelegateExploreTool
 from codekeel.tools.shell import ShellTool
 from codekeel.workspace.base import Workspace
 
@@ -78,10 +80,15 @@ class Agent:
         plan: Plan | None = None,
         policy: ActionPolicy | None = None,
         verification_policy: VerificationPolicy | None = None,
+        explorer: ExplorerAgent | None = None,
     ) -> None:
         self.model = model
         self.workspace = workspace
         self.tool_registry = tool_registry or default_tool_registry()
+        self.explorer = explorer
+        if explorer is not None:
+            self.tool_registry = ToolRegistry(self.tool_registry.get(d.name) for d in self.tool_registry.definitions())
+            self.tool_registry.register(DelegateExploreTool())
         self.system_prompt = system_prompt
         self.termination_policy = TerminationPolicy(
             budgets=budgets if budgets is not None else BudgetLimits(),
@@ -134,7 +141,7 @@ class Agent:
         self._last_event_id = ""
         self._at_boundary = True
         self._tool_context = ToolContext(workspace=self.workspace, run_id=self.run_id, defer_output_limits=True,
-                                         update_plan=self._update_plan)
+                                         update_plan=self._update_plan, delegate_explore=self._delegate_explore)
         self._started_at = self.termination_policy.clock()
         return await self._drive(new=True)
 
@@ -174,7 +181,9 @@ class Agent:
         expected = {"usage": checkpoint.state.usage, "steps": checkpoint.state.steps,
                     "model_calls": checkpoint.state.model_calls, "tool_calls": checkpoint.state.tool_calls,
                     "verification_attempts": checkpoint.state.verification_attempts,
-                    "verification_commands": checkpoint.state.verification_commands}
+                    "verification_commands": checkpoint.state.verification_commands,
+                    "explorer_steps": checkpoint.state.explorer_steps,
+                    "explorer_tool_calls": checkpoint.state.explorer_tool_calls}
         if accounting is not None and any(getattr(accounting, key) != value for key, value in expected.items()):
             raise ResumeError("Checkpoint accounting does not match the trace")
         if accounting is None and (checkpoint.state.model_calls or checkpoint.state.tool_calls
@@ -202,7 +211,7 @@ class Agent:
         self.termination_policy = TerminationPolicy(budgets=checkpoint.budgets, clock=self.termination_policy.clock)
         self._started_at = self.termination_policy.clock() - checkpoint.elapsed_seconds
         self._tool_context = ToolContext(workspace=self.workspace, run_id=run_id, defer_output_limits=True,
-                                         update_plan=self._update_plan)
+                                         update_plan=self._update_plan, delegate_explore=self._delegate_explore)
         self._at_boundary = True
         if self.state.status is RunStatus.WAITING_FOR_APPROVAL:
             assert self.pending_approval is not None
@@ -288,6 +297,7 @@ class Agent:
             "model_calls": self.state.model_calls, "tool_calls": self.state.tool_calls,
             "verification_attempts": self.state.verification_attempts,
             "verification_commands": self.state.verification_commands,
+            "explorer_steps": self.state.explorer_steps, "explorer_tool_calls": self.state.explorer_tool_calls,
         }
 
     def _emit(self, event_class: type[EventEnvelope], **payload: Any) -> None:
@@ -446,6 +456,56 @@ class Agent:
             )
         )
 
+    async def _delegate_explore(self, task: str) -> ToolResult:
+        if self.explorer is None:
+            return ToolResult(content="No explorer configured.", is_error=True)
+        assert self.run_id is not None and self._started_at is not None
+
+        def check() -> bool:
+            status = self.termination_policy.evaluate(self.state, started_at=self._started_at)
+            if status is not None:
+                self.state.status = status
+                return False
+            return True
+
+        def before_model() -> bool:
+            if not check():
+                return False
+            self.state.model_calls += 1
+            self.state.explorer_steps += 1
+            self._emit(BudgetUpdated, **self._budget_payload())
+            return True
+
+        def after_model(response: ModelResponse) -> bool:
+            self.state.add_usage(response.usage)
+            self._emit(BudgetUpdated, **self._budget_payload())
+            # A final report may use the final request slot, as a parent answer can.
+            budgets = self.termination_policy.budgets
+            for value, limit, status in (
+                (self.state.usage.cost, budgets.max_cost, RunStatus.MAX_COST),
+                (self.state.usage.input_tokens, budgets.max_input_tokens, RunStatus.MAX_TOKENS),
+                (self.state.usage.output_tokens, budgets.max_output_tokens, RunStatus.MAX_TOKENS),
+            ):
+                if limit is not None and value >= limit:
+                    self.state.status = status
+                    return False
+            if self.termination_policy.wall_time_exceeded(started_at=self._started_at):
+                self.state.status = RunStatus.TIMEOUT
+                return False
+            return True
+
+        def before_tool() -> bool:
+            if not check():
+                return False
+            self.state.explorer_tool_calls += 1
+            self._emit(BudgetUpdated, **self._budget_payload())
+            return True
+
+        return await self.explorer.run(
+            task, workspace=self.workspace, run_id=self.run_id, policy=self.policy,
+            before_model=before_model, after_model=after_model, before_tool=before_tool,
+        )
+
     async def _verify_final_intent(self) -> None:
         policy = self.verification_policy
         assert policy is not None and self._tool_context is not None and self._started_at is not None
@@ -467,7 +527,8 @@ class Agent:
                 self.state.status = RunStatus.TIMEOUT
                 return
             limit = self.termination_policy.budgets.max_tool_calls
-            if limit is not None and self.state.tool_calls + self.state.verification_commands >= limit:
+            spent = self.state.tool_calls + self.state.verification_commands + self.state.explorer_tool_calls
+            if limit is not None and spent >= limit:
                 # An incomplete suite is never successful. Keep it unready so a
                 # restart cannot replay commands already executed in this attempt.
                 self.state.status = RunStatus.MAX_STEPS

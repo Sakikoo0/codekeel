@@ -81,6 +81,9 @@ class Checkpoint(BaseModel):
                 raise ValueError("Verification command count exceeds attempted suites")
             if self.state.status is RunStatus.COMPLETED and self.state.verification_passed is not True:
                 raise ValueError("Configured verification must pass before completion")
-        if self.state.steps > self.state.model_calls or self.state.tool_calls > self.state.steps:
+        if self.state.explorer_tool_calls > self.state.explorer_steps:
+            raise ValueError("Explorer tool calls exceed child steps")
+        if (self.state.steps + self.state.explorer_steps > self.state.model_calls
+                or self.state.tool_calls > self.state.steps):
             raise ValueError("Inconsistent persisted counters")
         return self

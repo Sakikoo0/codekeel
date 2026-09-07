@@ -25,11 +25,12 @@ class TerminationPolicy:
             return RunStatus.MAX_TOKENS
         if _reached(state.usage.output_tokens, self.budgets.max_output_tokens):
             return RunStatus.MAX_TOKENS
-        if _reached(state.steps, self.budgets.max_steps):
+        if _reached(state.steps + state.explorer_steps, self.budgets.max_steps):
             return RunStatus.MAX_STEPS
         if _reached(state.model_calls, self.budgets.max_model_calls):
             return RunStatus.MAX_STEPS
-        if _reached(state.tool_calls + state.verification_commands, self.budgets.max_tool_calls):
+        if _reached(state.tool_calls + state.verification_commands + state.explorer_tool_calls,
+                    self.budgets.max_tool_calls):
             return RunStatus.MAX_STEPS
         return None
 

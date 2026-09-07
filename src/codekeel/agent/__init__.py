@@ -2,13 +2,16 @@
 
 from typing import TYPE_CHECKING
 
+from codekeel.agent.explorer import ExplorerAgent
 from codekeel.agent.state import AgentState, RunStatus
 from codekeel.agent.termination import TerminationPolicy
 
 if TYPE_CHECKING:
     from codekeel.agent.loop import Agent, AgentProtocolError, FinalAnswer
 
-__all__ = ["Agent", "AgentProtocolError", "AgentState", "FinalAnswer", "RunStatus", "TerminationPolicy"]
+__all__ = [
+    "Agent", "AgentProtocolError", "AgentState", "ExplorerAgent", "FinalAnswer", "RunStatus", "TerminationPolicy",
+]
 
 
 def __getattr__(name: str):

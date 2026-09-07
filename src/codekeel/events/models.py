@@ -60,6 +60,8 @@ class BudgetPayload(Payload):
     steps: int = Field(ge=0)
     model_calls: int = Field(ge=0)
     tool_calls: int = Field(ge=0)
+    explorer_steps: int = Field(default=0, ge=0)
+    explorer_tool_calls: int = Field(default=0, ge=0)
     verification_attempts: int = Field(default=0, ge=0)
     verification_commands: int = Field(default=0, ge=0)
 

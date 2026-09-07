@@ -70,6 +70,7 @@ class ActionPolicy(BaseModel):
     confirm_unknown: bool = True
     tool_risks: dict[str, Risk] = Field(default_factory=lambda: {
         **dict.fromkeys(("read_file", "list_directory", "find_files", "search_files"), Risk.LOW),
+        "delegate_explore": Risk.LOW, "git_read": Risk.LOW,
         "write_file": Risk.MEDIUM, "edit_file": Risk.MEDIUM, "update_plan": Risk.LOW,
     })
     denied_tools: tuple[str, ...] = ()

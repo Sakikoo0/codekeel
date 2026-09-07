@@ -33,6 +33,9 @@ class AgentState(BaseModel):
     model_calls: int = Field(default=0, ge=0)
     tool_calls: int = Field(default=0, ge=0)
 
+    explorer_steps: int = Field(default=0, ge=0, strict=True)
+    explorer_tool_calls: int = Field(default=0, ge=0, strict=True)
+
     verification_attempts: int = Field(default=0, ge=0, strict=True)
     verification_commands: int = Field(default=0, ge=0, strict=True)
     verification_passed: bool | None = Field(default=None, strict=True)
