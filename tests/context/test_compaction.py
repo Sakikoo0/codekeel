@@ -7,6 +7,7 @@ from codekeel.agent import Agent, RunStatus
 from codekeel.context.compaction import ContextConfig, DeterministicContextManager, estimate_context_tokens
 from codekeel.context.manager import ContextBudgetExceeded, ContextHistoryError
 from codekeel.models import FakeModel, Message, ModelResponse, ToolCall, ToolDefinition, ToolResult, Usage
+from codekeel.runtime.policy import ActionPolicy, Risk
 from codekeel.tools import ToolRegistry
 
 
@@ -200,7 +201,8 @@ async def test_agent_120_turns_bounds_every_request_and_retains_original_events(
 
     model.complete = complete
     tool = RecordingTool()
-    agent = Agent(model, FakeWorkspace(), tool_registry=ToolRegistry([tool]),
+    agent = Agent(model, FakeWorkspace(), policy=ActionPolicy(tool_risks={"record": Risk.LOW}),
+                  tool_registry=ToolRegistry([tool]),
                   context_manager=manager(max_tokens=1500, max_message_chars=512, keep_recent_turns=2))
     state = await agent.run("task")
     assert state.status is RunStatus.COMPLETED

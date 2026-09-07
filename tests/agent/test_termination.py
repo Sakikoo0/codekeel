@@ -7,6 +7,7 @@ import pytest
 from codekeel.agent import Agent, RunStatus
 from codekeel.models import FakeModel, Message, ModelResponse, ToolCall, ToolDefinition, ToolResult, Usage
 from codekeel.runtime import BudgetLimits
+from codekeel.runtime.policy import ActionPolicy, Risk
 from codekeel.tools import ToolContext, ToolRegistry
 
 
@@ -101,7 +102,7 @@ async def test_agent_completes_within_budgets() -> None:
             ]
         ),
         workspace=FakeWorkspace(),
-        tool_registry=ToolRegistry([tool]),
+        policy=ActionPolicy(tool_risks={"tick": Risk.LOW}), tool_registry=ToolRegistry([tool]),
         budgets=_isolated_budgets(max_steps=3),
     )
 
@@ -143,7 +144,7 @@ async def test_repeating_tool_calls_stop_at_each_budget(budgets, usage, expected
     agent = Agent(
         model=FakeModel([_tool_response(usage) for _ in range(4)]),
         workspace=FakeWorkspace(),
-        tool_registry=ToolRegistry([tool]),
+        policy=ActionPolicy(tool_risks={"tick": Risk.LOW}), tool_registry=ToolRegistry([tool]),
         budgets=budgets,
     )
 
@@ -163,7 +164,7 @@ async def test_wall_time_uses_injected_clock_without_sleep() -> None:
     agent = Agent(
         model=model,
         workspace=FakeWorkspace(),
-        tool_registry=ToolRegistry([tool]),
+        policy=ActionPolicy(tool_risks={"tick": Risk.LOW}), tool_registry=ToolRegistry([tool]),
         budgets=_isolated_budgets(max_wall_time=1.0),
         clock=clock,
     )

@@ -7,7 +7,9 @@ from uuid import uuid4
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, TypeAdapter
 
 from codekeel.models.base import Message, ModelResponse, ToolCall, ToolDefinition, ToolResult, Usage
+from codekeel.runtime.approvals import PendingApproval
 from codekeel.runtime.budgets import BudgetLimits
+from codekeel.runtime.policy import ActionPolicy
 
 RunID = Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")]
 
@@ -19,6 +21,7 @@ class Payload(BaseModel):
 class StartPayload(Payload):
     messages: list[Message]
     budgets: BudgetLimits
+    policy: ActionPolicy = Field(default_factory=ActionPolicy)
 
 
 class RequestPayload(Payload):
@@ -128,9 +131,19 @@ class ContextCompacted(EventEnvelope):
     payload: CompactionPayload
 
 
+class ApprovalRequested(EventEnvelope):
+    type: Literal["ApprovalRequested"] = "ApprovalRequested"
+    payload: PendingApproval
+
+
+class ApprovalResolved(EventEnvelope):
+    type: Literal["ApprovalResolved"] = "ApprovalResolved"
+    payload: PendingApproval
+
+
 Event = Annotated[
     RunStarted | ModelRequested | ModelResponded | ToolCalled | ToolCompleted
-    | ToolFailed | BudgetUpdated | RunFinished | RunFailed | ContextCompacted,
+    | ToolFailed | BudgetUpdated | RunFinished | RunFailed | ContextCompacted | ApprovalRequested | ApprovalResolved,
     Field(discriminator="type"),
 ]
 EVENT_ADAPTER = TypeAdapter(Event)

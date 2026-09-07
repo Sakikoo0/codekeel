@@ -21,6 +21,7 @@ from codekeel.persistence.checkpoint import Checkpoint, RunMetadata, WorkspaceMe
 from codekeel.persistence.sqlite import SqliteCheckpointStore
 from codekeel.persistence.store import MemoryCheckpointStore, PersistenceError, ResumeError
 from codekeel.runtime import BudgetLimits
+from codekeel.runtime.policy import ActionPolicy, Risk
 from codekeel.tools import ToolRegistry
 from codekeel.workspace import FileInfo, FileResult, LocalWorkspace
 
@@ -73,7 +74,8 @@ async def stopped(store, trace, *, workspace=None, clock=None, budgets=None):
     args = {"clock": clock} if clock is not None else {}
     agent = StopAfterTwo(model(), workspace, checkpoint_store=store, event_store=trace,
                          workspace_metadata=WorkspaceMetadata(kind="custom", root="fixture"),
-                         run_metadata=RunMetadata(model="fake"), tool_registry=ToolRegistry([WriteTool()]),
+                         run_metadata=RunMetadata(model="fake"), policy=ActionPolicy(tool_risks={"record": Risk.LOW}),
+                         tool_registry=ToolRegistry([WriteTool()]),
                          plan={"current": "finish"}, budgets=budgets, **args)
     with pytest.raises(Crash):
         await agent.run("task")
@@ -85,6 +87,7 @@ def resumed(store, trace, *, workspace=None, **kwargs):
     final.complete = AsyncMock(wraps=final.complete)
     return Agent(final, workspace or FakeWorkspace(), checkpoint_store=store, event_store=trace,
                  workspace_metadata=WorkspaceMetadata(kind="custom", root="fixture"),
+                 policy=ActionPolicy(tool_risks={"record": Risk.LOW}),
                  tool_registry=ToolRegistry([WriteTool()]), **kwargs)
 
 
@@ -184,6 +187,7 @@ async def test_crash_after_terminal_checkpoint_finishes_trace_without_model_repl
     original = StopFinal(FakeModel([ModelResponse(content="done")]), FakeWorkspace(),
                          checkpoint_store=store, event_store=trace,
                          workspace_metadata=WorkspaceMetadata(kind="custom", root="fixture"),
+                         policy=ActionPolicy(tool_risks={"record": Risk.LOW}),
                          tool_registry=ToolRegistry([WriteTool()]))
     with pytest.raises(Crash):
         await original.run("task")
@@ -217,7 +221,7 @@ async def test_tool_side_effect_before_crash_is_never_repeated():
     workspace = FakeWorkspace()
     agent = Agent(model(), workspace, checkpoint_store=store, event_store=trace,
                   workspace_metadata=WorkspaceMetadata(kind="custom", root="fixture"),
-                  tool_registry=ToolRegistry([CrashingTool()]))
+                  policy=ActionPolicy(tool_risks={"record": Risk.LOW}), tool_registry=ToolRegistry([CrashingTool()]))
     with pytest.raises(Crash):
         await agent.run("task")
     assert workspace.files == {"0.txt": "0"}

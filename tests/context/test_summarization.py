@@ -13,6 +13,7 @@ from codekeel.events.models import ContextCompacted, parse_event
 from codekeel.events.store import EventStoreError, MemoryEventStore
 from codekeel.models import FakeModel, Message, ModelResponse, ToolCall, ToolDefinition, ToolResult, Usage
 from codekeel.runtime import BudgetLimits
+from codekeel.runtime.policy import ActionPolicy, Risk
 from codekeel.tools import ToolRegistry
 
 
@@ -189,6 +190,7 @@ def make_agent(*, summarizer=None, budgets=None, count=3, **kwargs):
     summarizer.complete = AsyncMock(wraps=summarizer.complete)
     tool = RecordingTool()
     agent = Agent(model, FakeWorkspace(), context_manager=SummarizingContextManager(config(), model=summarizer),
+                  policy=ActionPolicy(tool_risks={"record": Risk.LOW}),
                   tool_registry=ToolRegistry([tool]), budgets=budgets, **kwargs)
     return agent, model, summarizer, tool
 
@@ -221,7 +223,7 @@ async def test_same_model_is_used_when_no_dedicated_summarizer_is_injected():
     model = FakeModel([ModelResponse(tool_calls=[ToolCall(id=str(i), name="record")]) for i in range(3)]
                       + [summary_response(), ModelResponse(content="done")])
     agent = Agent(model, FakeWorkspace(), context_manager=SummarizingContextManager(config()),
-                  tool_registry=ToolRegistry([RecordingTool()]))
+                  policy=ActionPolicy(tool_risks={"record": Risk.LOW}), tool_registry=ToolRegistry([RecordingTool()]))
     assert (await agent.run("Fix tests")).status is RunStatus.COMPLETED
     assert agent.state.model_calls == 5 and len(events(agent, "ContextCompacted")) == 1
 

@@ -7,6 +7,7 @@ import pytest
 
 from codekeel.agent import Agent, AgentProtocolError, RunStatus
 from codekeel.models import FakeModel, ModelResponse, ToolCall, ToolDefinition, ToolResult, Usage
+from codekeel.runtime.policy import ActionPolicy, Risk
 from codekeel.tools import ToolContext, ToolRegistry
 from codekeel.workspace import CommandResult, FileInfo, FileResult
 
@@ -204,7 +205,7 @@ async def test_agent_supplies_workspace_and_run_id_to_tool_context() -> None:
             ]
         ),
         workspace=workspace,
-        tool_registry=ToolRegistry([tool]),
+        policy=ActionPolicy(tool_risks={"inspect_context": Risk.LOW}), tool_registry=ToolRegistry([tool]),
     )
 
     await agent.run("Inspect the runtime context")

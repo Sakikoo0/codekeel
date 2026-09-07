@@ -95,3 +95,39 @@ def resume_run(
     typer.echo(json.dumps({"run_id": run_id, "status": state.status, "model_calls": state.model_calls}))
     if state.status != "completed":
         raise typer.Exit(1)
+
+
+def _decide_run(run_id: str, action_id: str, root: Path, *, approved: bool) -> None:
+    import json
+
+    from codekeel.persistence.sqlite import SqliteCheckpointStore
+    from codekeel.persistence.store import PersistenceError
+    from codekeel.runtime.approvals import resolve_approval
+
+    try:
+        decision = resolve_approval(SqliteCheckpointStore(root), JsonlEventStore(root),
+                                    run_id, action_id, approved=approved)
+    except (OSError, ValueError, EventStoreError, PersistenceError):
+        typer.echo("Unable to record approval: missing, stale, mismatched, or unsafe run/action.", err=True)
+        raise typer.Exit(1) from None
+    typer.echo(json.dumps({"run_id": run_id, "action_id": decision.action_id, "approved": decision.approved}))
+
+
+@app.command("approve")
+def approve_run(
+    run_id: str,
+    action_id: str,
+    root: Annotated[Path, typer.Option(help="Trusted host root containing .agent checkpoints and traces.")] = Path("."),
+) -> None:
+    """Approve the exact pending action; use resume to execute it."""
+    _decide_run(run_id, action_id, root, approved=True)
+
+
+@app.command("reject")
+def reject_run(
+    run_id: str,
+    action_id: str,
+    root: Annotated[Path, typer.Option(help="Trusted host root containing .agent checkpoints and traces.")] = Path("."),
+) -> None:
+    """Reject the exact pending action; use resume to return the refusal to the model."""
+    _decide_run(run_id, action_id, root, approved=False)

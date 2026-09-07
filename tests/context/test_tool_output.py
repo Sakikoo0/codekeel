@@ -8,6 +8,7 @@ import pytest
 from codekeel.agent import Agent, RunStatus
 from codekeel.context.tool_output import ToolOutputConfig, ToolOutputManager
 from codekeel.models import FakeModel, ModelResponse, ToolCall, ToolDefinition, ToolResult
+from codekeel.runtime.policy import ActionPolicy, Risk
 from codekeel.tools import ToolRegistry
 from codekeel.workspace import CommandResult, FileInfo, FileResult, LocalWorkspace
 
@@ -230,7 +231,8 @@ async def test_shared_pipeline_bounds_custom_tool_results_and_preserves_error_se
     model = FakeModel([
         ModelResponse(tool_calls=[ToolCall(id="one", name=name, arguments={})]), ModelResponse(content="done"),
     ])
-    agent = Agent(model, workspace, tool_registry=ToolRegistry([tool]), tool_output_manager=ToolOutputManager(config()))
+    agent = Agent(model, workspace, policy=ActionPolicy(tool_risks={name: Risk.LOW}),
+                  tool_registry=ToolRegistry([tool]), tool_output_manager=ToolOutputManager(config()))
     state = await agent.run("task")
     assert state.status is RunStatus.COMPLETED
     result = json.loads(state.messages[3].content)

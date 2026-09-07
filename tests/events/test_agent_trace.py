@@ -8,6 +8,7 @@ from codekeel.events.jsonl import JsonlEventStore
 from codekeel.events.store import EventStoreError, MemoryEventStore
 from codekeel.models import FakeModel, ModelResponse, ToolCall, ToolDefinition, ToolResult, Usage
 from codekeel.runtime import BudgetLimits
+from codekeel.runtime.policy import ActionPolicy, Risk
 from codekeel.tools import ToolRegistry
 
 
@@ -49,7 +50,8 @@ async def test_deterministic_trajectory_order_payloads_and_run_isolation(tmp_pat
     tool = RecordingTool()
     agent = Agent(
         FakeModel([response(), ModelResponse(content="done"), ModelResponse(content="again")]),
-        FakeWorkspace(), tool_registry=ToolRegistry([tool]), event_store=JsonlEventStore(tmp_path),
+        FakeWorkspace(), policy=ActionPolicy(tool_risks={"record": Risk.LOW}),
+                  tool_registry=ToolRegistry([tool]), event_store=JsonlEventStore(tmp_path),
     )
     state = await agent.run("task")
     first_run = agent.run_id
@@ -83,7 +85,7 @@ async def test_deterministic_trajectory_order_payloads_and_run_isolation(tmp_pat
 async def test_recoverable_tool_failure_is_recorded_and_agent_can_finish():
     tool = RecordingTool(ToolResult(content="not found", is_error=True))
     agent = Agent(FakeModel([response(), ModelResponse(content="done")]), FakeWorkspace(),
-                  tool_registry=ToolRegistry([tool]))
+                  policy=ActionPolicy(tool_risks={"record": Risk.LOW}), tool_registry=ToolRegistry([tool]))
     await agent.run("task")
     failed = next(event for event in trace(agent) if event.type == "ToolFailed")
     assert failed.payload.result == tool.result
@@ -95,6 +97,7 @@ async def test_recoverable_tool_failure_is_recorded_and_agent_can_finish():
 @pytest.mark.parametrize("error", [RuntimeError("sensitive error details"), asyncio.CancelledError(), TimeoutError()])
 async def test_tool_exception_timeout_and_cancellation_have_terminal_events(error):
     agent = Agent(FakeModel([response()]), FakeWorkspace(),
+                  policy=ActionPolicy(tool_risks={"record": Risk.LOW}),
                   tool_registry=ToolRegistry([RecordingTool(error=error)]))
     if isinstance(error, TimeoutError):
         await agent.run("task")
@@ -135,6 +138,7 @@ async def test_invalid_tool_is_traced_without_execution():
 
 async def test_budget_termination_is_finished_with_exact_status():
     agent = Agent(FakeModel([response()]), FakeWorkspace(),
+                  policy=ActionPolicy(tool_risks={"record": Risk.LOW}),
                   tool_registry=ToolRegistry([RecordingTool()]), budgets=BudgetLimits(max_steps=1))
     await agent.run("task")
     assert trace(agent)[-1].type == "RunFinished"
@@ -156,7 +160,8 @@ async def test_sink_failure_is_not_silent_and_prevents_unrecorded_actions(fail_t
     tool = RecordingTool()
     model = FakeModel([response(), ModelResponse(content="done")])
     model.complete = AsyncMock(wraps=model.complete)
-    agent = Agent(model, FakeWorkspace(), tool_registry=ToolRegistry([tool]), event_store=store)
+    agent = Agent(model, FakeWorkspace(), policy=ActionPolicy(tool_risks={"record": Risk.LOW}),
+                  tool_registry=ToolRegistry([tool]), event_store=store)
     with pytest.raises(EventStoreError):
         await agent.run("task")
     assert agent.state.status is RunStatus.FAILED

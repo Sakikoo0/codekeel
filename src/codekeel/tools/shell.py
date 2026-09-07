@@ -163,9 +163,14 @@ class ShellTool:
             },
         )
 
-    async def execute(self, arguments: dict[str, Any], context: ToolContext) -> ToolResult:
+    def validate_arguments(self, arguments: dict[str, Any]) -> None:
+        """Validate the call shape without any workspace access."""
         _validate_arguments(self.name, arguments)
-        command = _non_empty_string(self.name, "command", arguments["command"])
+        _non_empty_string(self.name, "command", arguments["command"])
+
+    async def execute(self, arguments: dict[str, Any], context: ToolContext) -> ToolResult:
+        self.validate_arguments(arguments)
+        command = arguments["command"]
         try:
             self.config.validate_command(command)
             result = await context.workspace.execute(

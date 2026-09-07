@@ -17,6 +17,7 @@ from codekeel.context.repo import RepoContext
 from codekeel.context.tool_output import ToolOutputManager
 from codekeel.events.models import (
     EVENT_ADAPTER,
+    ApprovalRequested,
     BudgetUpdated,
     ContextCompacted,
     EventEnvelope,
@@ -33,8 +34,11 @@ from codekeel.events.store import EventStore, EventStoreError, MemoryEventStore
 from codekeel.models.base import Message, Model, ModelResponse, ToolCall, ToolDefinition, ToolResult
 from codekeel.persistence.checkpoint import Checkpoint, RunMetadata, WorkspaceMetadata
 from codekeel.persistence.store import CheckpointStore, PersistenceError, ResumeError
+from codekeel.runtime.approvals import PendingApproval, validate_approval
 from codekeel.runtime.budgets import BudgetLimits
+from codekeel.runtime.policy import ActionPolicy, Decision
 from codekeel.tools import ToolArgumentsError, ToolContext, ToolRegistry, UnknownToolError, default_tool_registry
+from codekeel.tools.shell import ShellTool
 from codekeel.workspace.base import Workspace
 
 _DEFAULT_SYSTEM_PROMPT = "You are a coding agent. Use the available tools when needed, then return a final answer."
@@ -70,6 +74,7 @@ class Agent:
         workspace_metadata: WorkspaceMetadata | None = None,
         run_metadata: RunMetadata | None = None,
         plan: JsonValue = None,
+        policy: ActionPolicy | None = None,
     ) -> None:
         self.model = model
         self.workspace = workspace
@@ -91,6 +96,8 @@ class Agent:
         self.workspace_metadata = workspace_metadata
         self.run_metadata = run_metadata if run_metadata is not None else RunMetadata()
         self.plan = plan
+        self.policy = policy.model_copy(deep=True) if policy is not None else ActionPolicy()
+        self.pending_approval: PendingApproval | None = None
         self._checkpoint_revision = 0
         self._last_event_id = ""
         self._at_boundary = False
@@ -112,6 +119,7 @@ class Agent:
             ],
             status=RunStatus.RUNNING,
         )
+        self.pending_approval = None
         self.run_id = uuid4().hex
         self._event_sequence = 0
         self._checkpoint_revision = 0
@@ -138,8 +146,9 @@ class Agent:
                 or trace.events[-1].event_id != checkpoint.last_event_id):
             raise ResumeError("Checkpoint and event log do not share the same settled frontier")
         start = trace.events[0]
-        if not isinstance(start, RunStarted) or start.payload.budgets != checkpoint.budgets:
-            raise ResumeError("Persisted budgets do not match the original run")
+        if (not isinstance(start, RunStarted) or start.payload.budgets != checkpoint.budgets
+                or start.payload.policy != checkpoint.policy):
+            raise ResumeError("Persisted budgets or action policy do not match the original run")
         accounting = next((event.payload for event in reversed(trace.events)
                            if isinstance(event, (BudgetUpdated, RunFinished, RunFailed))), None)
         expected = {"usage": checkpoint.state.usage, "steps": checkpoint.state.steps,
@@ -151,9 +160,12 @@ class Agent:
             raise ResumeError("Initial checkpoint has unrecorded usage")
         if isinstance(trace.events[-1], RunFinished) and trace.events[-1].payload.status != checkpoint.state.status:
             raise ResumeError("Checkpoint terminal status does not match the trace")
+        if checkpoint.pending_approval is not None:
+            validate_approval(checkpoint, self.event_store)
         self.state = checkpoint.state.model_copy(deep=True)
         if self.state.status not in {
             RunStatus.RUNNING, RunStatus.COMPLETED, RunStatus.MAX_STEPS, RunStatus.MAX_COST, RunStatus.MAX_TOKENS,
+            RunStatus.WAITING_FOR_APPROVAL,
         }:
             raise ResumeError("Checkpoint status cannot be resumed")
         self.run_id = checkpoint.run_id
@@ -162,10 +174,17 @@ class Agent:
         self._checkpoint_revision = checkpoint.revision
         self.run_metadata = checkpoint.metadata
         self.plan = checkpoint.plan
+        self.policy = checkpoint.policy.model_copy(deep=True)
+        self.pending_approval = checkpoint.pending_approval
         self.termination_policy = TerminationPolicy(budgets=checkpoint.budgets, clock=self.termination_policy.clock)
         self._started_at = self.termination_policy.clock() - checkpoint.elapsed_seconds
         self._tool_context = ToolContext(workspace=self.workspace, run_id=run_id, defer_output_limits=True)
         self._at_boundary = True
+        if self.state.status is RunStatus.WAITING_FOR_APPROVAL:
+            assert self.pending_approval is not None
+            if self.pending_approval.approved is None:
+                return self.state
+            self.state.status = RunStatus.RUNNING
         if self.state.status is not RunStatus.RUNNING:
             # A process may die after saving its terminal step but before writing
             # RunFinished. Complete that bookkeeping once, without calling a model.
@@ -197,6 +216,7 @@ class Agent:
                 elapsed_seconds=max(0.0, self.termination_policy.clock() - self._started_at),
                 workspace=self.workspace_metadata, metadata=self.run_metadata,
                 tools=self.tool_registry.definitions(), plan=self.plan,
+                policy=self.policy, pending_approval=self.pending_approval,
             )
             self.checkpoint_store.save(checkpoint, expected_revision=self._checkpoint_revision)
         except Exception as error:
@@ -206,12 +226,14 @@ class Agent:
     async def _drive(self, *, new: bool) -> AgentState:
         try:
             if new:
-                self._emit(RunStarted, messages=self.state.messages, budgets=self.termination_policy.budgets)
+                self._emit(RunStarted, messages=self.state.messages, budgets=self.termination_policy.budgets,
+                           policy=self.policy)
                 self.save_checkpoint()
             while self.state.status is RunStatus.RUNNING:
                 await self.step()
-            self._emit(RunFinished, status=self.state.status, **self._budget_payload())
-            self.save_checkpoint()
+            if self.state.status is not RunStatus.WAITING_FOR_APPROVAL:
+                self._emit(RunFinished, status=self.state.status, **self._budget_payload())
+                self.save_checkpoint()
         except (EventStoreError, PersistenceError):
             # A broken sink cannot reliably record its own failure; stop immediately.
             self.state.status = RunStatus.FAILED
@@ -266,6 +288,8 @@ class Agent:
             error.add_note("The terminal event could not be recorded.")
 
     async def step(self) -> None:
+        if self.state.status is not RunStatus.RUNNING:
+            raise RuntimeError("Agent step requires a running run")
         if self._tool_context is None or self._started_at is None:
             raise RuntimeError("Agent step requires an active run")
         # Persist an in-flight marker before any model/tool side effects. CAS
@@ -275,12 +299,20 @@ class Agent:
         await self._step()
         self._at_boundary = self.state.status in {
             RunStatus.RUNNING, RunStatus.COMPLETED, RunStatus.MAX_STEPS, RunStatus.MAX_COST, RunStatus.MAX_TOKENS,
+            RunStatus.WAITING_FOR_APPROVAL,
         }
         self.save_checkpoint()
 
     async def _step(self) -> None:
         if self._tool_context is None or self._started_at is None:
             raise RuntimeError("Agent step requires an active run")
+        if self.pending_approval is not None:
+            pending = self.pending_approval
+            if pending.approved is None:
+                raise ResumeError("Pending action requires an explicit decision")
+            self.pending_approval = None
+            await self._execute_action(pending.call, approved=pending.approved)
+            return
         if status := self.termination_policy.evaluate(self.state, started_at=self._started_at):
             self.state.status = status
             return
@@ -320,14 +352,32 @@ class Agent:
             self.state.status = RunStatus.COMPLETED
             return
 
+        await self._execute_action(action)
+
+    async def _execute_action(self, action: ToolCall, *, approved: bool | None = None) -> None:
+        assert self._started_at is not None
         if self.termination_policy.wall_time_exceeded(started_at=self._started_at):
             self.state.status = RunStatus.TIMEOUT
             return
-        self.state.tool_calls += 1
-        self._emit(BudgetUpdated, **self._budget_payload())
-        self._emit(ToolCalled, call=action)
+        if approved is None:
+            self.state.tool_calls += 1
+            self._emit(BudgetUpdated, **self._budget_payload())
+            self._emit(ToolCalled, call=action)
         try:
-            result = await self._execute_tool_with_deadline(action)
+            tool = self.tool_registry.get(action.name)
+            if isinstance(tool, ShellTool):
+                tool.validate_arguments(action.arguments)
+            assessment = self.policy.assess(action)
+            if assessment.decision is Decision.DENY or approved is False:
+                reason = "Action denied by policy." if approved is not False else "Action rejected by user."
+                result = ToolResult(content=reason, is_error=True)
+            elif assessment.decision is Decision.REQUIRE_APPROVAL and approved is None:
+                self.pending_approval = PendingApproval(call=action.model_copy(deep=True), risk=assessment.risk)
+                self.state.status = RunStatus.WAITING_FOR_APPROVAL
+                self._emit(ApprovalRequested, **self.pending_approval.model_dump())
+                return
+            else:
+                result = await self._execute_tool_with_deadline(action)
         except TimeoutError:
             self._emit(ToolFailed, tool_call_id=action.id, error_type="TimeoutError")
             self.state.status = RunStatus.TIMEOUT
