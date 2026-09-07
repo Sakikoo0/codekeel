@@ -1,0 +1,8 @@
+id: pass
+repo: fixtures/parser_ok
+task: Confirm parse rejects empty input and strips nonempty input.
+verification:
+  command: python -B -m unittest -q
+limits:
+  max_steps: 5
+  timeout: 10

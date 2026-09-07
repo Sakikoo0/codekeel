@@ -348,6 +348,7 @@ source = { editable = "." }
 dependencies = [
     { name = "litellm" },
     { name = "pydantic" },
+    { name = "pyyaml" },
     { name = "typer" },
 ]
 
@@ -362,6 +363,7 @@ dev = [
 requires-dist = [
     { name = "litellm", specifier = ">=1.98.0" },
     { name = "pydantic", specifier = ">=2.13.5" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "typer", specifier = ">=0.27.2" },
 ]
 

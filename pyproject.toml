@@ -11,6 +11,7 @@ requires-python = ">=3.12"
 dependencies = [
     "litellm>=1.98.0",
     "pydantic>=2.13.5",
+    "pyyaml>=6.0.3",
     "typer>=0.27.2",
 ]
 

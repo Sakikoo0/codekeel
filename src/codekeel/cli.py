@@ -223,3 +223,32 @@ def reject_run(
 ) -> None:
     """Reject the exact pending action; use resume to return the refusal to the model."""
     _decide_run(run_id, action_id, root, approved=False)
+
+
+@app.command("eval")
+def evaluate_tasks(
+    dataset: Annotated[Path, typer.Argument(exists=True, help="Trusted local YAML task file or directory.")],
+    model: Annotated[str, typer.Option(help="Provider/model identifier; a fresh adapter per task.")],
+    root: Annotated[Path, typer.Option(help="Trusted output directory for evaluation results and traces.")]
+    = Path(".agent/evals"),
+) -> None:
+    """Evaluate copied local repositories. Exit 0 only if every task verifies successfully."""
+    import asyncio
+    import json
+
+    from codekeel.evals.dataset import load_dataset
+    from codekeel.evals.runner import run_dataset
+
+    if not model.strip() or "\x00" in model:
+        raise typer.BadParameter("Model must be nonblank and contain no NUL.")
+    try:
+        tasks = load_dataset(dataset)
+        evaluation = asyncio.run(run_dataset(tasks, model_factory=lambda: _resume_model(model), root=root))
+    except Exception:
+        typer.echo("Unable to evaluate dataset: configuration, workspace, runtime, or storage failure.", err=True)
+        raise typer.Exit(1) from None
+    for result in evaluation.results:
+        typer.echo(json.dumps(result.model_dump(mode="json"), ensure_ascii=True))
+    typer.echo(json.dumps({"results_path": str(evaluation.directory / "results.jsonl")}))
+    if not all(result.success for result in evaluation.results):
+        raise typer.Exit(1)

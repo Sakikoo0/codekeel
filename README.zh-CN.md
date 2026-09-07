@@ -24,7 +24,7 @@ CodeKeel 将语言模型连接到代码仓库工具和有边界的工作区，�
 codekeel run \
   --repo ./my-project \
   --task "修复失败的解析器测试" \
-  --model deepseek/deepseek-chat
+  --model deepseek/deepseek-v4-flash
 ```
 
 ## 为什么选择 CodeKeel？
@@ -85,7 +85,7 @@ mkdir -p ./demo-repo ./.codekeel-state
 codekeel run \
   --repo ./demo-repo \
   --root ./.codekeel-state \
-  --model deepseek/deepseek-chat \
+  --model deepseek/deepseek-v4-flash \
   --task "创建 README.md，包含标题、简短的项目介绍和使用方法。"
 ```
 
@@ -251,7 +251,7 @@ from codekeel.models import LiteLLMModel
 from codekeel.workspace import LocalWorkspace
 
 workspace = LocalWorkspace("./my-project")
-agent = Agent(LiteLLMModel("deepseek/deepseek-chat"), workspace)
+agent = Agent(LiteLLMModel("deepseek/deepseek-v4-flash"), workspace)
 
 try:
     state = await agent.run("创建简洁的 CONTRIBUTING.md")
@@ -303,7 +303,8 @@ print(state.status)
 - [ ] 确定性评测框架
 - [ ] 配置对比 benchmark
 - [ ] REST/WebSocket Agent Server
-- [ ] V1 文档和 benchmark 报告
+- [ ] benchmark 报告
+- [ ] 多轮交互式终端会话，保留现有非交互 CLI
 
 ## 文档
 

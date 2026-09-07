@@ -25,7 +25,7 @@ management, durable traces, resumable runs, and verification-aware completion.
 codekeel run \
   --repo ./my-project \
   --task "Fix the failing parser tests" \
-  --model deepseek/deepseek-chat
+  --model deepseek/deepseek-v4-flash
 ```
 
 ## Why CodeKeel?
@@ -93,7 +93,7 @@ mkdir -p ./demo-repo ./.codekeel-state
 codekeel run \
   --repo ./demo-repo \
   --root ./.codekeel-state \
-  --model deepseek/deepseek-chat \
+  --model deepseek/deepseek-v4-flash \
   --task "Create README.md with a title, a short project description, and a usage section."
 ```
 
@@ -276,7 +276,7 @@ from codekeel.models import LiteLLMModel
 from codekeel.workspace import LocalWorkspace
 
 workspace = LocalWorkspace("./my-project")
-agent = Agent(LiteLLMModel("deepseek/deepseek-chat"), workspace)
+agent = Agent(LiteLLMModel("deepseek/deepseek-v4-flash"), workspace)
 
 try:
     state = await agent.run("Create a concise CONTRIBUTING.md")
@@ -329,7 +329,8 @@ not treat a model's completion message as evidence of success.
 - [ ] Deterministic evaluation harness
 - [ ] Comparative configuration benchmarks
 - [ ] REST/WebSocket agent server
-- [ ] V1 documentation and benchmark report
+- [ ] benchmark report
+- [ ] Multi-turn interactive terminal sessions, preserving the existing non-interactive CLI
 
 ## Documentation
 
