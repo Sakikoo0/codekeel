@@ -74,6 +74,7 @@ def test_default_registry_exposes_current_tools_in_stable_order() -> None:
         "list_directory",
         "find_files",
         "search_files",
+        "update_plan",
     ]
     assert all(definition.parameters["type"] == "object" for definition in definitions)
     assert all(definition.parameters["additionalProperties"] is False for definition in definitions)

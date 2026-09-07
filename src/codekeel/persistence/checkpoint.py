@@ -3,12 +3,13 @@
 from datetime import UTC, datetime
 from typing import Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 from codekeel.agent.state import AgentState, RunStatus
 from codekeel.context.compaction import _turns
 from codekeel.events.models import RunID
 from codekeel.models.base import ToolDefinition
+from codekeel.planning import Plan
 from codekeel.runtime.approvals import PendingApproval
 from codekeel.runtime.budgets import BudgetLimits
 from codekeel.runtime.policy import ActionPolicy
@@ -46,7 +47,7 @@ class Checkpoint(BaseModel):
     policy: ActionPolicy = Field(default_factory=ActionPolicy)
     pending_approval: PendingApproval | None = None
     # Opaque plan data only, required by Commit 17; no planner is implemented.
-    plan: JsonValue = None
+    plan: Plan | None = None
     # Context summaries are already canonical messages in state.messages.
 
     @model_validator(mode="after")

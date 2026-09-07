@@ -20,6 +20,7 @@ from codekeel.models import FakeModel, Message, ModelResponse, ToolCall, ToolDef
 from codekeel.persistence.checkpoint import Checkpoint, RunMetadata, WorkspaceMetadata
 from codekeel.persistence.sqlite import SqliteCheckpointStore
 from codekeel.persistence.store import MemoryCheckpointStore, PersistenceError, ResumeError
+from codekeel.planning import Plan, PlanItem
 from codekeel.runtime import BudgetLimits
 from codekeel.runtime.policy import ActionPolicy, Risk
 from codekeel.tools import ToolRegistry
@@ -76,7 +77,7 @@ async def stopped(store, trace, *, workspace=None, clock=None, budgets=None):
                          workspace_metadata=WorkspaceMetadata(kind="custom", root="fixture"),
                          run_metadata=RunMetadata(model="fake"), policy=ActionPolicy(tool_risks={"record": Risk.LOW}),
                          tool_registry=ToolRegistry([WriteTool()]),
-                         plan={"current": "finish"}, budgets=budgets, **args)
+                         plan=Plan(items=(PlanItem(id="1", description="finish"),)), budgets=budgets, **args)
     with pytest.raises(Crash):
         await agent.run("task")
     return agent
@@ -109,7 +110,7 @@ async def test_restart_continues_step_three_without_replay(tmp_path, backend):
     assert state.steps == state.model_calls == 3 and state.tool_calls == 2
     assert state.usage.input_tokens == 23 and state.usage.output_tokens == 12
     assert state.usage.cost == pytest.approx(0.25)
-    assert fresh.plan == {"current": "finish"}
+    assert fresh.plan == Plan(items=(PlanItem(id="1", description="finish"),))
     fresh.model.complete.assert_awaited_once()
     original.model.complete.assert_awaited()
     assert fresh.workspace.files == {"0.txt": "0", "1.txt": "1"}
@@ -129,7 +130,7 @@ async def test_real_workspace_files_survive_new_runtime_objects(tmp_path):
     assert (tmp_path / "1.txt").read_text() == "1"
 
 
-async def test_summary_messages_and_opaque_plan_roundtrip(tmp_path):
+async def test_summary_messages_and_structured_plan_roundtrip(tmp_path):
     store, trace = SqliteCheckpointStore(tmp_path), JsonlEventStore(tmp_path)
     original = await stopped(store, trace)
     summary = Message(role="assistant", content="Summary of previous history:\n## Goal\nfinish task")

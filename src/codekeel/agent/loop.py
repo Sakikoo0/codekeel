@@ -7,12 +7,10 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
-from pydantic import JsonValue
-
 from codekeel.agent.state import AgentState, RunStatus
 from codekeel.agent.termination import TerminationPolicy
 from codekeel.context.compaction import DeterministicContextManager, estimate_context_tokens
-from codekeel.context.manager import ContextManager, SummaryContextManager
+from codekeel.context.manager import ContextHistoryError, ContextManager, SummaryContextManager
 from codekeel.context.repo import RepoContext
 from codekeel.context.tool_output import ToolOutputManager
 from codekeel.events.models import (
@@ -23,6 +21,7 @@ from codekeel.events.models import (
     EventEnvelope,
     ModelRequested,
     ModelResponded,
+    PlanUpdated,
     RunFailed,
     RunFinished,
     RunStarted,
@@ -34,6 +33,7 @@ from codekeel.events.store import EventStore, EventStoreError, MemoryEventStore
 from codekeel.models.base import Message, Model, ModelResponse, ToolCall, ToolDefinition, ToolResult
 from codekeel.persistence.checkpoint import Checkpoint, RunMetadata, WorkspaceMetadata
 from codekeel.persistence.store import CheckpointStore, PersistenceError, ResumeError
+from codekeel.planning import Plan
 from codekeel.runtime.approvals import PendingApproval, validate_approval
 from codekeel.runtime.budgets import BudgetLimits
 from codekeel.runtime.policy import ActionPolicy, Decision
@@ -73,7 +73,7 @@ class Agent:
         checkpoint_store: CheckpointStore | None = None,
         workspace_metadata: WorkspaceMetadata | None = None,
         run_metadata: RunMetadata | None = None,
-        plan: JsonValue = None,
+        plan: Plan | None = None,
         policy: ActionPolicy | None = None,
     ) -> None:
         self.model = model
@@ -95,7 +95,9 @@ class Agent:
         self.checkpoint_store = checkpoint_store
         self.workspace_metadata = workspace_metadata
         self.run_metadata = run_metadata if run_metadata is not None else RunMetadata()
-        self.plan = plan
+        self._initial_plan = Plan.model_validate(plan) if plan is not None else None
+        self.plan = self._initial_plan
+        self._request_messages: list[Message] = []
         self.policy = policy.model_copy(deep=True) if policy is not None else ActionPolicy()
         self.pending_approval: PendingApproval | None = None
         self._checkpoint_revision = 0
@@ -120,12 +122,14 @@ class Agent:
             status=RunStatus.RUNNING,
         )
         self.pending_approval = None
+        self.plan = self._initial_plan
         self.run_id = uuid4().hex
         self._event_sequence = 0
         self._checkpoint_revision = 0
         self._last_event_id = ""
         self._at_boundary = True
-        self._tool_context = ToolContext(workspace=self.workspace, run_id=self.run_id, defer_output_limits=True)
+        self._tool_context = ToolContext(workspace=self.workspace, run_id=self.run_id, defer_output_limits=True,
+                                         update_plan=self._update_plan)
         self._started_at = self.termination_policy.clock()
         return await self._drive(new=True)
 
@@ -149,6 +153,10 @@ class Agent:
         if (not isinstance(start, RunStarted) or start.payload.budgets != checkpoint.budgets
                 or start.payload.policy != checkpoint.policy):
             raise ResumeError("Persisted budgets or action policy do not match the original run")
+        recorded_plan = next((event.payload.plan for event in reversed(trace.events)
+                              if isinstance(event, PlanUpdated)), start.payload.plan)
+        if checkpoint.plan != recorded_plan:
+            raise ResumeError("Checkpoint plan does not match the event log")
         accounting = next((event.payload for event in reversed(trace.events)
                            if isinstance(event, (BudgetUpdated, RunFinished, RunFailed))), None)
         expected = {"usage": checkpoint.state.usage, "steps": checkpoint.state.steps,
@@ -178,7 +186,8 @@ class Agent:
         self.pending_approval = checkpoint.pending_approval
         self.termination_policy = TerminationPolicy(budgets=checkpoint.budgets, clock=self.termination_policy.clock)
         self._started_at = self.termination_policy.clock() - checkpoint.elapsed_seconds
-        self._tool_context = ToolContext(workspace=self.workspace, run_id=run_id, defer_output_limits=True)
+        self._tool_context = ToolContext(workspace=self.workspace, run_id=run_id, defer_output_limits=True,
+                                         update_plan=self._update_plan)
         self._at_boundary = True
         if self.state.status is RunStatus.WAITING_FOR_APPROVAL:
             assert self.pending_approval is not None
@@ -204,7 +213,7 @@ class Agent:
             raise ResumeError("Workspace root is missing or is not a canonical directory")
 
     def save_checkpoint(self) -> None:
-        """Save the current boundary (including opaque plan and summary messages)."""
+        """Save the current boundary (including structured plan and summary messages)."""
         if self.checkpoint_store is None:
             return
         assert self.workspace_metadata is not None and self.run_id is not None and self._started_at is not None
@@ -227,7 +236,7 @@ class Agent:
         try:
             if new:
                 self._emit(RunStarted, messages=self.state.messages, budgets=self.termination_policy.budgets,
-                           policy=self.policy)
+                           policy=self.policy, plan=self.plan)
                 self.save_checkpoint()
             while self.state.status is RunStatus.RUNNING:
                 await self.step()
@@ -333,10 +342,10 @@ class Agent:
         self._emit(BudgetUpdated, **self._budget_payload())
         self._emit(
             ModelRequested, model_call=self.state.model_calls,
-            messages=self.state.messages, tools=definitions,
+            messages=self._request_messages, tools=definitions,
         )
         try:
-            response = await self._complete_with_deadline(definitions)
+            response = await self._complete_with_deadline(definitions, messages=self._request_messages)
         except TimeoutError:
             self.state.status = RunStatus.TIMEOUT
             return
@@ -415,14 +424,27 @@ class Agent:
             )
         )
 
+    def _update_plan(self, plan: Plan) -> None:
+        # Emit first: a broken audit sink must not silently mutate the plan.
+        self._emit(PlanUpdated, plan=plan)
+        self.plan = plan
+
+    def _set_prepared(self, prepared: list[Message], reminder: Message | None) -> None:
+        if reminder is not None and (not prepared or prepared[-1] != reminder):
+            raise ContextHistoryError("Context manager must preserve the current plan reminder")
+        self._request_messages = prepared
+        self.state.messages = prepared[:-1] if reminder is not None else prepared
+
     async def _prepare_context(self, definitions: list[ToolDefinition]) -> None:
         manager = self.context_manager
+        reminder = self.plan.reminder() if self.plan is not None else None
+        history = [*self.state.messages, reminder] if reminder is not None else self.state.messages
         limit = self.termination_policy.budgets.max_model_calls
         # Reserve the pending main request. With only one slot left, use the
         # deterministic path rather than silently exceeding the parent's ceiling.
         can_summarize = limit is None or self.state.model_calls + 1 < limit
         if isinstance(manager, SummaryContextManager) and can_summarize:
-            request = manager.plan_summary(self.state.messages, tools=definitions)
+            request = manager.plan_summary(history, tools=definitions)
             if request is not None:
                 assert self._started_at is not None
                 if status := self.termination_policy.evaluate(self.state, started_at=self._started_at):
@@ -444,9 +466,9 @@ class Agent:
                     after_estimated_tokens=estimate_context_tokens(prepared, definitions),
                     messages_removed=request.messages_removed, summary_model_calls=1,
                 )
-                self.state.messages = prepared
+                self._set_prepared(prepared, reminder)
                 return
-        self.state.messages = manager.prepare(self.state.messages, tools=definitions)
+        self._set_prepared(manager.prepare(history, tools=definitions), reminder)
 
     async def _complete_with_deadline(
         self, definitions: list[ToolDefinition], *, model: Model | None = None, messages: list[Message] | None = None,

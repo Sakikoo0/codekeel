@@ -1,9 +1,11 @@
 """Contracts shared by tools and the tool runtime."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
 from codekeel.models.base import ToolDefinition, ToolResult
+from codekeel.planning import Plan
 from codekeel.workspace.base import Workspace
 
 
@@ -31,6 +33,7 @@ class ToolContext:
     run_id: str
     # Set by Agent only when a ToolOutputManager will bound the returned content.
     defer_output_limits: bool = False
+    update_plan: Callable[[Plan], None] | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.run_id, str) or not self.run_id.strip():

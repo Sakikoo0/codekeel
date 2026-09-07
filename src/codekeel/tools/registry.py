@@ -12,6 +12,7 @@ from codekeel.tools.base import (
 )
 from codekeel.tools.base import ToolArgumentsError as ToolArgumentsError
 from codekeel.tools.filesystem import filesystem_tools
+from codekeel.tools.planning import UpdatePlanTool
 from codekeel.tools.shell import ShellTool
 
 
@@ -52,4 +53,4 @@ class ToolRegistry:
 
 def default_tool_registry() -> ToolRegistry:
     """Build the current default tool set in stable model-facing order."""
-    return ToolRegistry([ShellTool(), *filesystem_tools()])
+    return ToolRegistry([ShellTool(), *filesystem_tools(), UpdatePlanTool()])
