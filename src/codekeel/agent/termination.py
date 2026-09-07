@@ -29,7 +29,7 @@ class TerminationPolicy:
             return RunStatus.MAX_STEPS
         if _reached(state.model_calls, self.budgets.max_model_calls):
             return RunStatus.MAX_STEPS
-        if _reached(state.tool_calls, self.budgets.max_tool_calls):
+        if _reached(state.tool_calls + state.verification_commands, self.budgets.max_tool_calls):
             return RunStatus.MAX_STEPS
         return None
 

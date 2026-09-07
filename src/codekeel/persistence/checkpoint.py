@@ -13,6 +13,7 @@ from codekeel.planning import Plan
 from codekeel.runtime.approvals import PendingApproval
 from codekeel.runtime.budgets import BudgetLimits
 from codekeel.runtime.policy import ActionPolicy
+from codekeel.runtime.verification import VerificationPolicy
 
 
 class WorkspaceMetadata(BaseModel):
@@ -46,8 +47,8 @@ class Checkpoint(BaseModel):
     tools: list[ToolDefinition]
     policy: ActionPolicy = Field(default_factory=ActionPolicy)
     pending_approval: PendingApproval | None = None
-    # Opaque plan data only, required by Commit 17; no planner is implemented.
     plan: Plan | None = None
+    verification_policy: VerificationPolicy | None = None
     # Context summaries are already canonical messages in state.messages.
 
     @model_validator(mode="after")
@@ -66,6 +67,20 @@ class Checkpoint(BaseModel):
                 _turns(messages[:-1])
             else:
                 _turns(self.state.messages)
+        policy = self.verification_policy
+        if policy is None:
+            if (self.state.verification_attempts or self.state.verification_commands
+                    or self.state.verification_passed is not None):
+                raise ValueError("Verification accounting requires a configured policy")
+        else:
+            if self.state.verification_passed is not None and not self.state.verification_attempts:
+                raise ValueError("Verification result requires an attempt")
+            if self.state.verification_attempts > policy.max_verification_attempts:
+                raise ValueError("Verification attempts exceed the configured limit")
+            if self.state.verification_commands > self.state.verification_attempts * len(policy.commands):
+                raise ValueError("Verification command count exceeds attempted suites")
+            if self.state.status is RunStatus.COMPLETED and self.state.verification_passed is not True:
+                raise ValueError("Configured verification must pass before completion")
         if self.state.steps > self.state.model_calls or self.state.tool_calls > self.state.steps:
             raise ValueError("Inconsistent persisted counters")
         return self

@@ -189,13 +189,14 @@ async def test_external_task_cancellation_sets_cancelled_status() -> None:
     assert agent.state.status is RunStatus.CANCELLED
 
 
-def test_run_status_contains_the_commit_11_state_set() -> None:
+def test_run_status_contains_current_state_set() -> None:
     assert list(RunStatus) == [
         RunStatus.IDLE,
         RunStatus.RUNNING,
         RunStatus.WAITING_FOR_APPROVAL,
         RunStatus.COMPLETED,
         RunStatus.FAILED,
+        RunStatus.VERIFICATION_FAILED,
         RunStatus.MAX_STEPS,
         RunStatus.MAX_COST,
         RunStatus.MAX_TOKENS,

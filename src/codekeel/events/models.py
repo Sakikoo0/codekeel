@@ -11,6 +11,7 @@ from codekeel.planning import Plan
 from codekeel.runtime.approvals import PendingApproval
 from codekeel.runtime.budgets import BudgetLimits
 from codekeel.runtime.policy import ActionPolicy
+from codekeel.runtime.verification import VerificationPolicy
 
 RunID = Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")]
 
@@ -24,6 +25,7 @@ class StartPayload(Payload):
     budgets: BudgetLimits
     policy: ActionPolicy = Field(default_factory=ActionPolicy)
     plan: Plan | None = None
+    verification_policy: VerificationPolicy | None = None
 
 
 class RequestPayload(Payload):
@@ -39,6 +41,7 @@ class ResponsePayload(Payload):
 
 class CalledPayload(Payload):
     call: ToolCall
+    source: Literal["model", "verification"] = "model"
 
 
 class CompletedPayload(Payload):
@@ -57,6 +60,8 @@ class BudgetPayload(Payload):
     steps: int = Field(ge=0)
     model_calls: int = Field(ge=0)
     tool_calls: int = Field(ge=0)
+    verification_attempts: int = Field(default=0, ge=0)
+    verification_commands: int = Field(default=0, ge=0)
 
 
 class FinishPayload(BudgetPayload):
@@ -133,6 +138,16 @@ class ContextCompacted(EventEnvelope):
     payload: CompactionPayload
 
 
+class VerificationPayload(Payload):
+    attempt: int = Field(ge=1, strict=True)
+    passed: bool = Field(strict=True)
+
+
+class VerificationFinished(EventEnvelope):
+    type: Literal["VerificationFinished"] = "VerificationFinished"
+    payload: VerificationPayload
+
+
 class PlanPayload(Payload):
     plan: Plan
 
@@ -155,7 +170,7 @@ class ApprovalResolved(EventEnvelope):
 Event = Annotated[
     RunStarted | ModelRequested | ModelResponded | ToolCalled | ToolCompleted
     | ToolFailed | BudgetUpdated | RunFinished | RunFailed | ContextCompacted | ApprovalRequested | ApprovalResolved
-    | PlanUpdated,
+    | PlanUpdated | VerificationFinished,
     Field(discriminator="type"),
 ]
 EVENT_ADAPTER = TypeAdapter(Event)
