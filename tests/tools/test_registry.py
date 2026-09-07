@@ -5,8 +5,8 @@ from typing import Any
 
 import pytest
 
-from coding_agent.models import ToolCall, ToolDefinition, ToolResult
-from coding_agent.tools import (
+from codekeel.models import ToolCall, ToolDefinition, ToolResult
+from codekeel.tools import (
     DuplicateToolError,
     ShellTool,
     ToolArgumentsError,
@@ -16,7 +16,7 @@ from coding_agent.tools import (
     UnknownToolError,
     default_tool_registry,
 )
-from coding_agent.workspace import CommandResult, FileResult
+from codekeel.workspace import CommandResult, FileResult
 
 
 class FakeWorkspace:

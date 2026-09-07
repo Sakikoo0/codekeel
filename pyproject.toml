@@ -3,9 +3,9 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
-name = "coding-agent-harness"
+name = "codekeel"
 version = "0.1.0"
-description = "A small, extensible harness for coding agents"
+description = "CodeKeel, a small, extensible harness for coding agents"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-coding-agent = "coding_agent.cli:app"
+codekeel = "codekeel.cli:app"
 
 [dependency-groups]
 dev = [
@@ -25,7 +25,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/coding_agent"]
+packages = ["src/codekeel"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -4,11 +4,11 @@ import sys
 
 from typer.testing import CliRunner
 
-from coding_agent.cli import app
-from coding_agent.events.jsonl import JsonlEventStore
-from coding_agent.events.models import RunStarted
-from coding_agent.models import Message
-from coding_agent.runtime import BudgetLimits
+from codekeel.cli import app
+from codekeel.events.jsonl import JsonlEventStore
+from codekeel.events.models import RunStarted
+from codekeel.models import Message
+from codekeel.runtime import BudgetLimits
 
 
 def test_inspect_prints_trace_and_preserves_unknown_events(tmp_path, monkeypatch):
@@ -59,11 +59,11 @@ class BlockProvider(importlib.abc.MetaPathFinder):
             raise AssertionError("Trace inspection must not import the provider SDK")
 
 sys.meta_path.insert(0, BlockProvider())
-from coding_agent.cli import app
-from coding_agent.events.jsonl import JsonlEventStore
-from coding_agent.events.models import RunStarted
-from coding_agent.models import Message
-from coding_agent.runtime import BudgetLimits
+from codekeel.cli import app
+from codekeel.events.jsonl import JsonlEventStore
+from codekeel.events.models import RunStarted
+from codekeel.models import Message
+from codekeel.runtime import BudgetLimits
 from typer.testing import CliRunner
 
 JsonlEventStore().append(RunStarted(run_id="offline", sequence=1, payload={

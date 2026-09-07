@@ -4,7 +4,7 @@ from typing import Literal
 
 import pytest
 
-from coding_agent.workspace import CommandResult, FileInfo, FileResult, LocalWorkspace, Workspace
+from codekeel.workspace import CommandResult, FileInfo, FileResult, LocalWorkspace, Workspace
 
 
 class FakeWorkspace:

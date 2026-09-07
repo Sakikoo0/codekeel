@@ -4,11 +4,11 @@ import subprocess
 
 import pytest
 
-from coding_agent.workspace import DockerWorkspace
+from codekeel.workspace import DockerWorkspace
 
 pytestmark = pytest.mark.docker
 
-_IMAGE = os.environ.get("CODING_AGENT_TEST_DOCKER_IMAGE", "alpine:3.20")
+_IMAGE = os.environ.get("CODEKEEL_TEST_DOCKER_IMAGE", "alpine:3.20")
 
 
 @pytest.fixture(scope="module", autouse=True)

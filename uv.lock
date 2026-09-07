@@ -342,7 +342,7 @@ wheels = [
 ]
 
 [[package]]
-name = "coding-agent-harness"
+name = "codekeel"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

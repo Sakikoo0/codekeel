@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from coding_agent.models import Message, ModelResponse, ToolCall, ToolDefinition, ToolResult, Usage
+from codekeel.models import Message, ModelResponse, ToolCall, ToolDefinition, ToolResult, Usage
 
 
 def test_model_contracts_round_trip() -> None:

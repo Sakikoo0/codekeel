@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from coding_agent.workspace import DockerWorkspace
+from codekeel.workspace import DockerWorkspace
 
 
 class SuccessfulDockerRunner:
@@ -19,7 +19,7 @@ class SuccessfulDockerRunner:
 
 async def test_docker_workspace_uses_secure_creation_defaults(tmp_path, monkeypatch) -> None:
     runner = SuccessfulDockerRunner()
-    monkeypatch.setattr("coding_agent.workspace.docker.subprocess.run", runner)
+    monkeypatch.setattr("codekeel.workspace.docker.subprocess.run", runner)
     monkeypatch.setenv("OPENAI_API_KEY", "host-openai-secret")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "host-anthropic-secret")
     workspace = DockerWorkspace(
@@ -53,7 +53,7 @@ async def test_docker_workspace_uses_secure_creation_defaults(tmp_path, monkeypa
 
 async def test_docker_workspace_network_must_be_explicitly_enabled(tmp_path, monkeypatch) -> None:
     runner = SuccessfulDockerRunner()
-    monkeypatch.setattr("coding_agent.workspace.docker.subprocess.run", runner)
+    monkeypatch.setattr("codekeel.workspace.docker.subprocess.run", runner)
     workspace = DockerWorkspace(tmp_path, image="sandbox:test", network_enabled=True)
 
     await workspace.start()
@@ -63,7 +63,7 @@ async def test_docker_workspace_network_must_be_explicitly_enabled(tmp_path, mon
 
 async def test_docker_workspace_can_execute_with_an_exact_environment(tmp_path, monkeypatch) -> None:
     runner = SuccessfulDockerRunner()
-    monkeypatch.setattr("coding_agent.workspace.docker.subprocess.run", runner)
+    monkeypatch.setattr("codekeel.workspace.docker.subprocess.run", runner)
     workspace = DockerWorkspace(tmp_path, image="sandbox:test")
 
     await workspace.execute("env", env={"SAFE": "visible"}, inherit_env=False)
@@ -92,7 +92,7 @@ async def test_docker_workspace_removes_container_when_start_fails(tmp_path, mon
             return subprocess.CompletedProcess(command, 1, stdout="", stderr="start failed")
         return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
-    monkeypatch.setattr("coding_agent.workspace.docker.subprocess.run", run)
+    monkeypatch.setattr("codekeel.workspace.docker.subprocess.run", run)
     workspace = DockerWorkspace(tmp_path, image="sandbox:test")
 
     with pytest.raises(RuntimeError, match="Failed to start Docker workspace"):
@@ -114,7 +114,7 @@ async def test_docker_workspace_recovers_container_after_command_timeout(tmp_pat
             raise subprocess.TimeoutExpired(command, kwargs["timeout"], output="partial\n", stderr="warning\n")
         return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
-    monkeypatch.setattr("coding_agent.workspace.docker.subprocess.run", run)
+    monkeypatch.setattr("codekeel.workspace.docker.subprocess.run", run)
     workspace = DockerWorkspace(tmp_path, image="sandbox:test")
 
     result = await workspace.execute("sleep 60", timeout=0.1)

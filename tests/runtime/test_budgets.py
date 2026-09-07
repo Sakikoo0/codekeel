@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from coding_agent.runtime import BudgetLimits
+from codekeel.runtime import BudgetLimits
 
 
 def test_budget_defaults_provide_hard_run_bounds() -> None:

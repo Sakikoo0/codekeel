@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from coding_agent.tools import ShellConfig, ShellTool, ToolArgumentsError, ToolContext
-from coding_agent.workspace import CommandResult, LocalWorkspace
+from codekeel.tools import ShellConfig, ShellTool, ToolArgumentsError, ToolContext
+from codekeel.workspace import CommandResult, LocalWorkspace
 
 
 class RecordingWorkspace:

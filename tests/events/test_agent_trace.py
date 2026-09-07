@@ -3,12 +3,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from coding_agent.agent import Agent, AgentProtocolError, RunStatus
-from coding_agent.events.jsonl import JsonlEventStore
-from coding_agent.events.store import EventStoreError, MemoryEventStore
-from coding_agent.models import FakeModel, ModelResponse, ToolCall, ToolDefinition, ToolResult, Usage
-from coding_agent.runtime import BudgetLimits
-from coding_agent.tools import ToolRegistry
+from codekeel.agent import Agent, AgentProtocolError, RunStatus
+from codekeel.events.jsonl import JsonlEventStore
+from codekeel.events.store import EventStoreError, MemoryEventStore
+from codekeel.models import FakeModel, ModelResponse, ToolCall, ToolDefinition, ToolResult, Usage
+from codekeel.runtime import BudgetLimits
+from codekeel.tools import ToolRegistry
 
 
 class FakeWorkspace:

@@ -1,6 +1,6 @@
 import pytest
 
-from coding_agent.models import FakeModel, Message, ModelResponse, Usage
+from codekeel.models import FakeModel, Message, ModelResponse, Usage
 
 
 async def test_fake_model_returns_scripted_responses() -> None:

@@ -5,10 +5,10 @@ from typing import Any
 
 import pytest
 
-from coding_agent.agent import Agent, AgentProtocolError, RunStatus
-from coding_agent.models import FakeModel, ModelResponse, ToolCall, ToolDefinition, ToolResult, Usage
-from coding_agent.tools import ToolContext, ToolRegistry
-from coding_agent.workspace import CommandResult, FileInfo, FileResult
+from codekeel.agent import Agent, AgentProtocolError, RunStatus
+from codekeel.models import FakeModel, ModelResponse, ToolCall, ToolDefinition, ToolResult, Usage
+from codekeel.tools import ToolContext, ToolRegistry
+from codekeel.workspace import CommandResult, FileInfo, FileResult
 
 
 class FakeWorkspace:

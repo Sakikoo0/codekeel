@@ -5,11 +5,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from coding_agent.agent import Agent, RunStatus
-from coding_agent.context.tool_output import ToolOutputConfig, ToolOutputManager
-from coding_agent.models import FakeModel, ModelResponse, ToolCall, ToolDefinition, ToolResult
-from coding_agent.tools import ToolRegistry
-from coding_agent.workspace import CommandResult, FileInfo, FileResult, LocalWorkspace
+from codekeel.agent import Agent, RunStatus
+from codekeel.context.tool_output import ToolOutputConfig, ToolOutputManager
+from codekeel.models import FakeModel, ModelResponse, ToolCall, ToolDefinition, ToolResult
+from codekeel.tools import ToolRegistry
+from codekeel.workspace import CommandResult, FileInfo, FileResult, LocalWorkspace
 
 
 class FakeWorkspace:

@@ -6,11 +6,11 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from coding_agent.events.jsonl import JsonlEventStore
-from coding_agent.events.models import EVENT_ADAPTER, RunStarted, UnknownEvent, parse_event
-from coding_agent.events.store import EventStoreError, MemoryEventStore
-from coding_agent.models import Message
-from coding_agent.runtime import BudgetLimits
+from codekeel.events.jsonl import JsonlEventStore
+from codekeel.events.models import EVENT_ADAPTER, RunStarted, UnknownEvent, parse_event
+from codekeel.events.store import EventStoreError, MemoryEventStore
+from codekeel.models import Message
+from codekeel.runtime import BudgetLimits
 
 
 def event(sequence=1, *, event_id=None, run_id="test-run"):

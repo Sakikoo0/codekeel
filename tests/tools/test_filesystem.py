@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from coding_agent.models import ToolResult
-from coding_agent.tools import (
+from codekeel.models import ToolResult
+from codekeel.tools import (
     EditFileTool,
     FileSystemConfig,
     FindFilesTool,
@@ -15,7 +15,7 @@ from coding_agent.tools import (
     WriteFileTool,
     filesystem_tools,
 )
-from coding_agent.workspace import LocalWorkspace
+from codekeel.workspace import LocalWorkspace
 
 
 @pytest.fixture

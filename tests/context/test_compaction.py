@@ -3,11 +3,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from coding_agent.agent import Agent, RunStatus
-from coding_agent.context.compaction import ContextConfig, DeterministicContextManager, estimate_context_tokens
-from coding_agent.context.manager import ContextBudgetExceeded, ContextHistoryError
-from coding_agent.models import FakeModel, Message, ModelResponse, ToolCall, ToolDefinition, ToolResult, Usage
-from coding_agent.tools import ToolRegistry
+from codekeel.agent import Agent, RunStatus
+from codekeel.context.compaction import ContextConfig, DeterministicContextManager, estimate_context_tokens
+from codekeel.context.manager import ContextBudgetExceeded, ContextHistoryError
+from codekeel.models import FakeModel, Message, ModelResponse, ToolCall, ToolDefinition, ToolResult, Usage
+from codekeel.tools import ToolRegistry
 
 
 def prefix():

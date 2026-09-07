@@ -11,18 +11,18 @@ from unittest.mock import AsyncMock
 import pytest
 from typer.testing import CliRunner
 
-from coding_agent.agent import Agent, AgentState, RunStatus
-from coding_agent.cli import app
-from coding_agent.events.jsonl import JsonlEventStore
-from coding_agent.events.models import BudgetUpdated
-from coding_agent.events.store import MemoryEventStore
-from coding_agent.models import FakeModel, Message, ModelResponse, ToolCall, ToolDefinition, ToolResult, Usage
-from coding_agent.persistence.checkpoint import Checkpoint, RunMetadata, WorkspaceMetadata
-from coding_agent.persistence.sqlite import SqliteCheckpointStore
-from coding_agent.persistence.store import MemoryCheckpointStore, PersistenceError, ResumeError
-from coding_agent.runtime import BudgetLimits
-from coding_agent.tools import ToolRegistry
-from coding_agent.workspace import FileInfo, FileResult, LocalWorkspace
+from codekeel.agent import Agent, AgentState, RunStatus
+from codekeel.cli import app
+from codekeel.events.jsonl import JsonlEventStore
+from codekeel.events.models import BudgetUpdated
+from codekeel.events.store import MemoryEventStore
+from codekeel.models import FakeModel, Message, ModelResponse, ToolCall, ToolDefinition, ToolResult, Usage
+from codekeel.persistence.checkpoint import Checkpoint, RunMetadata, WorkspaceMetadata
+from codekeel.persistence.sqlite import SqliteCheckpointStore
+from codekeel.persistence.store import MemoryCheckpointStore, PersistenceError, ResumeError
+from codekeel.runtime import BudgetLimits
+from codekeel.tools import ToolRegistry
+from codekeel.workspace import FileInfo, FileResult, LocalWorkspace
 
 
 class Crash(BaseException):
@@ -391,7 +391,7 @@ def test_cli_resume_with_new_local_workspace(tmp_path, monkeypatch):
     with pytest.raises(Crash):
         asyncio.run(agent.run("task"))
     final = FakeModel([ModelResponse(content="done")])
-    monkeypatch.setattr("coding_agent.cli._resume_model", lambda _: final)
+    monkeypatch.setattr("codekeel.cli._resume_model", lambda _: final)
     result = CliRunner().invoke(app, ["resume", agent.run_id, "--root", str(tmp_path)])
     assert result.exit_code == 0, result.output
     assert json.loads(result.stdout)["status"] == "completed"
@@ -402,7 +402,7 @@ def test_cli_resume_with_new_local_workspace(tmp_path, monkeypatch):
 def test_cli_resume_missing_run_fails_without_model(tmp_path, monkeypatch):
     def unexpected(_):
         pytest.fail("Model must not be constructed")
-    monkeypatch.setattr("coding_agent.cli._resume_model", unexpected)
+    monkeypatch.setattr("codekeel.cli._resume_model", unexpected)
     result = CliRunner().invoke(app, ["resume", "missing", "--root", str(tmp_path)])
     assert result.exit_code == 1 and "Unable to resume" in result.output
 
@@ -421,12 +421,12 @@ def test_hard_process_exit_and_fresh_python_resume(tmp_path):
         import os
         import sys
         from pathlib import Path
-        from coding_agent.agent import Agent
-        from coding_agent.events.jsonl import JsonlEventStore
-        from coding_agent.models import FakeModel, ModelResponse, ToolCall, Usage
-        from coding_agent.persistence.checkpoint import WorkspaceMetadata
-        from coding_agent.persistence.sqlite import SqliteCheckpointStore
-        from coding_agent.workspace import LocalWorkspace
+        from codekeel.agent import Agent
+        from codekeel.events.jsonl import JsonlEventStore
+        from codekeel.models import FakeModel, ModelResponse, ToolCall, Usage
+        from codekeel.persistence.checkpoint import WorkspaceMetadata
+        from codekeel.persistence.sqlite import SqliteCheckpointStore
+        from codekeel.workspace import LocalWorkspace
 
         root = Path(sys.argv[1])
         class ExitingAgent(Agent):

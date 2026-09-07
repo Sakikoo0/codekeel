@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from coding_agent.models import (
+from codekeel.models import (
     LiteLLMModel,
     LiteLLMResponseError,
     Message,
@@ -34,7 +34,7 @@ def _provider_response(
 
 async def test_litellm_model_converts_text_response_and_forwards_config(monkeypatch):
     completion = AsyncMock(return_value=_provider_response(content="done"))
-    monkeypatch.setattr("coding_agent.models.litellm.litellm.acompletion", completion)
+    monkeypatch.setattr("codekeel.models.litellm.litellm.acompletion", completion)
     model = LiteLLMModel(
         "openai/test-model",
         api_base="https://models.example/v1",
@@ -85,7 +85,7 @@ async def test_litellm_model_round_trips_tool_messages_and_calls(monkeypatch):
     completion = AsyncMock(
         return_value=_provider_response(content=None, tool_calls=[provider_tool_call])
     )
-    monkeypatch.setattr("coding_agent.models.litellm.litellm.acompletion", completion)
+    monkeypatch.setattr("codekeel.models.litellm.litellm.acompletion", completion)
     model = LiteLLMModel("test/model")
 
     response = await model.complete(
@@ -121,7 +121,7 @@ async def test_litellm_model_round_trips_tool_messages_and_calls(monkeypatch):
 
 async def test_litellm_model_propagates_provider_failure(monkeypatch):
     completion = AsyncMock(side_effect=RuntimeError("provider unavailable"))
-    monkeypatch.setattr("coding_agent.models.litellm.litellm.acompletion", completion)
+    monkeypatch.setattr("codekeel.models.litellm.litellm.acompletion", completion)
 
     with pytest.raises(RuntimeError, match="provider unavailable"):
         await LiteLLMModel("test/model").complete([Message(role="user", content="hello")])
@@ -135,7 +135,7 @@ async def test_litellm_model_rejects_malformed_tool_arguments(monkeypatch):
     completion = AsyncMock(
         return_value=_provider_response(content=None, tool_calls=[provider_tool_call])
     )
-    monkeypatch.setattr("coding_agent.models.litellm.litellm.acompletion", completion)
+    monkeypatch.setattr("codekeel.models.litellm.litellm.acompletion", completion)
 
     with pytest.raises(LiteLLMResponseError, match="not valid JSON"):
         await LiteLLMModel("test/model").complete([Message(role="user", content="hello")])

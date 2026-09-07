@@ -4,10 +4,10 @@ from typing import Any
 
 import pytest
 
-from coding_agent.agent import Agent, RunStatus
-from coding_agent.models import FakeModel, Message, ModelResponse, ToolCall, ToolDefinition, ToolResult, Usage
-from coding_agent.runtime import BudgetLimits
-from coding_agent.tools import ToolContext, ToolRegistry
+from codekeel.agent import Agent, RunStatus
+from codekeel.models import FakeModel, Message, ModelResponse, ToolCall, ToolDefinition, ToolResult, Usage
+from codekeel.runtime import BudgetLimits
+from codekeel.tools import ToolContext, ToolRegistry
 
 
 class FakeWorkspace:

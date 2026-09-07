@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from coding_agent.workspace import LocalWorkspace
+from codekeel.workspace import LocalWorkspace
 
 
 async def test_local_workspace_runs_each_command_in_a_new_process(tmp_path) -> None:

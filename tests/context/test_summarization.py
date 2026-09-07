@@ -4,16 +4,16 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from coding_agent.agent import Agent, RunStatus
-from coding_agent.context.compaction import ContextConfig, estimate_context_tokens
-from coding_agent.context.manager import ContextBudgetExceeded, ContextHistoryError
-from coding_agent.context.summarization import HistorySummary, SummarizingContextManager, SummaryConfig, SummaryError
-from coding_agent.events.jsonl import JsonlEventStore
-from coding_agent.events.models import ContextCompacted, parse_event
-from coding_agent.events.store import EventStoreError, MemoryEventStore
-from coding_agent.models import FakeModel, Message, ModelResponse, ToolCall, ToolDefinition, ToolResult, Usage
-from coding_agent.runtime import BudgetLimits
-from coding_agent.tools import ToolRegistry
+from codekeel.agent import Agent, RunStatus
+from codekeel.context.compaction import ContextConfig, estimate_context_tokens
+from codekeel.context.manager import ContextBudgetExceeded, ContextHistoryError
+from codekeel.context.summarization import HistorySummary, SummarizingContextManager, SummaryConfig, SummaryError
+from codekeel.events.jsonl import JsonlEventStore
+from codekeel.events.models import ContextCompacted, parse_event
+from codekeel.events.store import EventStoreError, MemoryEventStore
+from codekeel.models import FakeModel, Message, ModelResponse, ToolCall, ToolDefinition, ToolResult, Usage
+from codekeel.runtime import BudgetLimits
+from codekeel.tools import ToolRegistry
 
 
 def summary_response(**changes):
