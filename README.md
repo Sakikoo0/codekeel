@@ -138,6 +138,11 @@ uv run pytest -m docker
 
 ## Evaluate a Single Task
 
+[SWE-bench](https://github.com/SWE-bench/SWE-bench) is a benchmark for evaluating coding agents on real-world software engineering tasks derived from GitHub issues and repositories. It measures whether a model can generate code changes that resolve the target issue and pass the repository's tests.
+
+<details>
+<summary>Show details</summary>
+
 ### Prerequisites
 
 Recommended directory structure:
@@ -235,7 +240,7 @@ swebench/swebench-smoke-1/
 ├── metadata.json
 ├── astropy__astropy-12057.yaml
 └── repos/
-└── astropy__astropy-12057/
+      └── astropy__astropy-12057/
 ```
 
 ### Run the CodeKeel Evaluation
@@ -358,3 +363,5 @@ The final result should clearly record one of the following statuses:
 - resolved: The patch passes the tests required by the official evaluator.
 - unresolved: The patch was evaluated successfully but did not satisfy the test requirements.
 - evaluator error: An error occurred with the image, patch application, test environment, or evaluator.
+
+</details>

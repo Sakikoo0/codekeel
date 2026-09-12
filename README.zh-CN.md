@@ -138,6 +138,11 @@ uv run pytest -m docker
 
 ## 评估单个任务
 
+[SWE-bench](https://github.com/SWE-bench/SWE-bench) 是一个用于评估编程智能体真实软件工程能力的基准，其任务来源于真实的 GitHub Issues 和代码仓库。它通过检查模型生成的代码修改是否能够解决目标问题并通过对应测试来衡量智能体的表现。
+
+<details>
+<summary>展示更多细节</summary>
+
 ### 前置条件
 
 建议目录结构：
@@ -235,7 +240,7 @@ swebench/swebench-smoke-1/
 ├── metadata.json
 ├── astropy__astropy-12057.yaml
 └── repos/
-└── astropy__astropy-12057/
+     └── astropy__astropy-12057/
 ```
 
 ### 运行 CodeKeel 评估
@@ -358,3 +363,5 @@ uv run swebench report "codekeel-${TASK_ID}-001" -d full
 - resolved：补丁通过官方要求的测试。
 - unresolved：补丁成功评估，但没有满足测试要求。
 - evaluator error：镜像、补丁应用、测试环境或 evaluator 出错。
+
+</details>
