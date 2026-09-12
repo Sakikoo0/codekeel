@@ -296,3 +296,73 @@ def evaluate_tasks(
     typer.echo(json.dumps({"results_path": str(evaluation.directory / "results.jsonl")}))
     if not all(result.success for result in evaluation.results):
         raise typer.Exit(1)
+
+
+@app.command("eval-convert-swebench")
+def convert_swebench_tasks(
+    instance_id: Annotated[
+        list[str], typer.Option("--instance-id", help="SWE-bench instance ID; repeat for a subset."),
+    ],
+    revision: Annotated[str, typer.Option(help="Fixed SWE-bench dataset revision.")],
+    output: Annotated[Path, typer.Option(file_okay=False, help="New or empty trusted output directory.")],
+) -> None:
+    """Convert explicit SWE-bench test instances into local CodeKeel eval YAML."""
+    import json
+
+    from codekeel.evals.swebench import convert_swebench_subset
+
+    try:
+        summary = convert_swebench_subset(instance_id, revision=revision, output=output)
+    except Exception:
+        typer.echo(
+            "Unable to convert SWE-bench tasks: check IDs, revision, dependencies, repository, and output path.",
+            err=True,
+        )
+        raise typer.Exit(1) from None
+    typer.echo(json.dumps(summary.model_dump(mode="json"), ensure_ascii=True))
+
+
+@app.command("eval-export-swebench")
+def export_swebench_predictions_command(
+    dataset: Annotated[
+        Path, typer.Option(exists=True, file_okay=False, help="Converted SWE-bench dataset directory."),
+    ],
+    run: Annotated[
+        Path, typer.Option(exists=True, file_okay=False, help="Completed CodeKeel evaluation directory."),
+    ],
+    model_name: Annotated[
+        str, typer.Option(help="Sanitized codekeel/<model> identifier for the evaluator."),
+    ],
+    output: Annotated[Path, typer.Option(dir_okay=False, help="Predictions .jsonl output path.")],
+) -> None:
+    """Export trusted CodeKeel patch artifacts in SWE-bench prediction format."""
+    import json
+
+    from codekeel.evals.swebench import export_swebench_predictions
+
+    try:
+        summary = export_swebench_predictions(
+            dataset, run, model_name=model_name, output=output,
+        )
+    except Exception:
+        typer.echo(
+            "Unable to export SWE-bench predictions: check metadata, results, patches, model name, and output path.",
+            err=True,
+        )
+        raise typer.Exit(1) from None
+    typer.echo(json.dumps(summary.model_dump(mode="json"), ensure_ascii=True))
+
+
+@app.command("eval-verify-swebench-patch", hidden=True)
+def verify_swebench_patch_command(
+    base_commit: Annotated[str, typer.Option(help="Trusted initial commit.")],
+) -> None:
+    """Check the current worktree through the trusted patch exporter."""
+    from codekeel.evals.swebench import verify_swebench_patch
+
+    try:
+        verified = verify_swebench_patch(Path.cwd(), base_commit)
+    except Exception:
+        raise typer.Exit(1) from None
+    if not verified:
+        raise typer.Exit(1)

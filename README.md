@@ -16,48 +16,17 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-CodeKeel connects language models to repository tools and bounded workspaces. It
-adds the runtime services that turn a model/tool loop into a dependable coding
-agent: repository context, typed tools, budgets, approval controls, context
-management, durable traces, resumable runs, and verification-aware completion.
-
-```bash
-codekeel run \
-  --repo ./my-project \
-  --task "Fix the failing parser tests" \
-  --model deepseek/deepseek-v4-flash
-```
-
-## Why CodeKeel?
-
-A model that can call a shell is only the beginning of a coding agent. A useful
-coding-agent harness must also decide what the model can access, keep long runs
-within limits, record what happened, recover safely, pause risky actions, and
-verify the result.
-
-CodeKeel makes those concerns explicit and independently testable:
-
-- **Small and inspectable:** a linear control loop with typed state and events.
-- **Provider-independent:** the agent depends on a model contract; the included
-  adapter uses LiteLLM.
-- **Workspace-based:** tools reach repositories through a workspace contract,
-  with local and disposable Docker implementations.
-- **Bounded:** filesystem, shell, context, output, step, time, token, and cost
-  limits are enforced by trusted runtime configuration.
-- **Durable:** JSONL events and SQLite checkpoints support inspection and safe
-  continuation from settled step boundaries.
-- **Verification-aware:** configured commands, rather than the model's own claim,
-  determine whether a task completed successfully.
+CodeKeel connects language models to repository tools and bounded workspaces. It adds the runtime services that turn a model/tool loop into a dependable coding agent: repository context, typed tools, budgets, approval controls, context management, durable traces, resumable runs, and verification-aware completion.
 
 ## Quick Start
 
 ### Requirements
 
-- Python 3.12 or newer
+- Python 3.12 or later
 - [uv](https://docs.astral.sh/uv/)
-- Docker, only when using the Docker workspace
+- Docker, only required when using Docker workspaces
 
-### Install from source
+### Install from Source
 
 ```bash
 git clone https://github.com/Sakikoo0/codekeel codekeel
@@ -66,13 +35,11 @@ uv sync
 uv run codekeel --version
 ```
 
-Until CodeKeel is installed as a command, prefix the examples below with
-`uv run`, such as `uv run codekeel run ...`.
+If CodeKeel has not yet been installed as a system command, prefix the commands below with `uv run`, for example `uv run codekeel run ...`.
 
-### Configure a model
+### Configure the Model
 
-CodeKeel accepts LiteLLM-style model identifiers and uses the provider's normal
-environment configuration. For example:
+CodeKeel accepts LiteLLM-style model identifiers and uses the standard environment configuration for the corresponding model provider. For example:
 
 ```bash
 export DEEPSEEK_API_KEY="..."
@@ -80,12 +47,11 @@ export DEEPSEEK_API_KEY="..."
 # export ANTHROPIC_API_KEY="..."
 ```
 
-Use the corresponding provider/model identifier, for example
-`deepseek/deepseek-v4-flash`.
+Then use the corresponding provider/model identifier, such as `deepseek/deepseek-v4-flash`.
 
-### Run a task
+### Run a Task
 
-Create the repository and trusted state directories before starting a run:
+Before starting a run, create the code repository directory and the trusted state directory:
 
 ```bash
 mkdir -p ./demo-repo ./.codekeel-state
@@ -94,18 +60,14 @@ codekeel run \
   --repo ./demo-repo \
   --root ./.codekeel-state \
   --model deepseek/deepseek-v4-flash \
-  --task "Create README.md with a title, a short project description, and a usage section."
+  --task "Create README.md with a title, a brief project introduction, and usage instructions."
 ```
 
-`--repo` is the repository the agent may inspect and modify. `--root` is the
-trusted host directory where CodeKeel stores checkpoints and traces. Keeping
-them separate prevents repository tools from treating runtime state as ordinary
-project files.
+`--repo` is the code repository that the Agent can inspect and modify. `--root` is the trusted host directory where CodeKeel stores checkpoints and run traces. Keeping them separate prevents repository tools from treating runtime state as ordinary project files.
 
-`run` prints a JSON summary containing the run ID, status, usage, duration,
-verification result, trace path, and any pending approval ID.
+`run` outputs a JSON summary containing the run ID, status, resource usage, duration, verification result, trace path, and pending approval action ID.
 
-### Use a Docker workspace
+### Use a Docker Workspace
 
 ```bash
 codekeel run \
@@ -118,56 +80,34 @@ codekeel run \
   --verify "pytest"
 ```
 
-Docker workspaces are disposable and have networking disabled by default. CLI
-resume currently supports recorded local workspaces only.
-
-## What CodeKeel Provides
-
-| Capability               | Purpose                                                         | Status    |
-| ------------------------ | --------------------------------------------------------------- | --------- |
-| Model adapter            | Call LiteLLM-compatible providers through a model contract      | Available |
-| Typed tools              | Read, write, edit, list, search, plan, and run bounded commands | Available |
-| Repository context       | Orient the agent before its first model request                 | Available |
-| Workspaces               | Run against local repositories or disposable Docker containers  | Available |
-| Context management       | Bound tool output and compact long conversations                | Available |
-| Planning and exploration | Maintain a structured plan and delegate read-only exploration   | Available |
-| Events and checkpoints   | Inspect runs and continue from settled step boundaries          | Available |
-| Approval policy          | Pause selected actions for an exact human decision              | Available |
-| Verification loop        | Require trusted commands to pass before completion              | Available |
-| Evaluation harness       | Compare configurations on reproducible tasks                    | Planned   |
-| Agent server             | Expose runs and events through REST and WebSocket APIs          | Planned   |
+Docker workspaces are ephemeral and have networking disabled by default. The CLI can currently only resume recorded local workspaces.
 
 ## CLI Overview
 
-| Command                             | Purpose                                      |
-| ----------------------------------- | -------------------------------------------- |
-| `codekeel run`                      | Start a new non-interactive coding-agent run |
-| `codekeel inspect RUN_ID`           | Print the run's event stream as JSON Lines   |
-| `codekeel resume RUN_ID`            | Continue a resumable local run               |
-| `codekeel approve RUN_ID ACTION_ID` | Approve the exact pending action             |
-| `codekeel reject RUN_ID ACTION_ID`  | Reject the exact pending action              |
+| Command                             | Purpose                                       |
+| ----------------------------------- | --------------------------------------------- |
+| `codekeel run`                      | Start a new non-interactive coding agent task |
+| `codekeel inspect RUN_ID`           | Output the run event stream as JSON Lines     |
+| `codekeel resume RUN_ID`            | Continue a resumable local run                |
+| `codekeel approve RUN_ID ACTION_ID` | Approve the exact currently pending action    |
+| `codekeel reject RUN_ID ACTION_ID`  | Reject the exact currently pending action     |
 
-Use `codekeel COMMAND --help` for the complete option reference.
+Use `codekeel COMMAND --help` to view all available options.
 
-### Inspect and resume
+### Inspect and Resume a Run
 
 ```bash
 codekeel inspect RUN_ID --root ./.codekeel-state
 codekeel resume RUN_ID --root ./.codekeel-state
 ```
 
-The same `--root` used for `run` must be used by later inspection, approval,
-rejection, and resume commands.
+Subsequent inspect, approve, reject, and resume commands must use the same `--root` as the original `run`.
 
-### Approve or reject an action
+### Approve or Reject Actions
 
-The default `--approval risky` mode pauses high-risk and unknown actions. Use
-`--approval always` to review every otherwise permitted action, or
-`--approval never` for non-interactive execution. Hard denials and workspace
-boundaries remain active in every mode.
+The default `--approval risky` mode pauses high-risk and unknown actions. Use `--approval always` to review every action that would otherwise be allowed, or `--approval never` for non-interactive execution. Hard-deny rules and workspace boundaries remain enforced in all modes.
 
-When a run returns `waiting_for_approval`, inspect the event and record exactly
-one decision before resuming:
+When a run returns `waiting_for_approval`, inspect the events first, record an exact decision, and then resume:
 
 ```bash
 codekeel inspect RUN_ID --root ./.codekeel-state
@@ -176,167 +116,11 @@ codekeel approve RUN_ID ACTION_ID --root ./.codekeel-state
 codekeel resume RUN_ID --root ./.codekeel-state
 ```
 
-Approving or rejecting records the decision; `resume` performs the continuation.
-
-## Architecture
-
-```mermaid
-flowchart TD
-    Entry[CLI / Python API] --> Agent[Agent Runtime]
-    Agent --> Model[Model Contract]
-    Agent --> Tools[Typed Tool Runtime]
-    Tools --> Workspace[Workspace Contract]
-    Workspace --> Local[LocalWorkspace]
-    Workspace --> Docker[DockerWorkspace]
-    Agent --> Context[Context Manager]
-    Agent --> Events[Event Log]
-    Agent --> Checkpoints[Checkpoint Store]
-    Agent --> Verify[Verification]
-```
-
-The dependency boundaries are intentional: the agent core does not directly
-depend on provider SDKs, Docker, subprocesses, SQLite, or web frameworks. Tools
-access repository files and commands through `Workspace`; model providers satisfy
-the `Model` contract.
-
-## Core Concepts
-
-### Agent Loop
-
-The runtime keeps a linear conversation: request a model response, validate and
-dispatch typed tool calls, append observations, and repeat until completion or a
-terminal limit. Explicit statuses distinguish completion, approval waits,
-verification failure, budget exhaustion, cancellation, timeout, and runtime failure.
-
-### Tool Runtime
-
-The default registry provides structured filesystem, search, shell, and planning
-tools. Python callers can also attach a bounded read-only explorer. Tool arguments
-are validated before execution, and tools cannot access the repository by
-bypassing the selected workspace.
-
-### Workspace and Sandbox Model
-
-`LocalWorkspace` is convenient for trusted repositories but executes commands on
-the host; it is not a sandbox. `DockerWorkspace` mounts only the selected workspace
-and provides a separate execution boundary with networking disabled by default.
-
-### Security Model
-
-Filesystem operations enforce workspace containment, symlink-aware checks,
-protected paths, and size limits. Shell execution uses command policies, bounded
-output, timeouts, workspace-contained working directories, and secret-environment
-filtering. Shell policy is a guardrail, while a Docker workspace provides execution
-isolation. Approval never disables either layer.
-
-### Context Management
-
-Large tool results are reduced before entering model history and may be spilled to
-workspace artifacts. Long conversations can be compacted deterministically or with
-an optional summarizing model while preserving the task and recent complete turns.
-
-### Persistence and Resume
-
-Runs can emit append-only JSONL events and persist settled state in SQLite.
-Continuation restores messages, usage, limits, policy, plan, and workspace metadata
-without replaying completed steps. CodeKeel refuses automatic replay when a crash
-leaves a step in flight because repeating an external action may be unsafe.
-
-### Human Approval
-
-Approval is tied to the exact pending action and persisted revision. Stale,
-repeated, mismatched, and cross-run decisions fail closed. A rejection is returned
-to the model as an observation so it can choose another approach.
-
-### Verification
-
-Repeat `--verify` to provide a trusted verification suite:
-
-```bash
-codekeel run \
-  --repo ./my-project \
-  --root ./.codekeel-state \
-  --task "Fix the parser" \
-  --model provider/model \
-  --verify "ruff check ." \
-  --verify "pytest"
-```
-
-All configured commands must pass in one attempt. A failed suite is returned to
-the agent for repair and retried within bounded attempts. Without `--verify`, the
-completion result is explicitly unchecked.
-
-## Python API
-
-CodeKeel components can also be composed directly:
-
-```python
-from codekeel.agent import Agent
-from codekeel.models import LiteLLMModel
-from codekeel.workspace import LocalWorkspace
-
-workspace = LocalWorkspace("./my-project")
-agent = Agent(LiteLLMModel("deepseek/deepseek-v4-flash"), workspace)
-
-try:
-    state = await agent.run("Create a concise CONTRIBUTING.md")
-finally:
-    await workspace.close()
-
-print(state.status)
-```
-
-The protocols also support custom models, workspaces, tools, event stores,
-checkpoint stores, context managers, policies, and verification configurations.
-
-## Evaluation and Benchmarks
-
-A deterministic evaluation harness and comparative configuration experiments are
-planned next. Evaluation will use repository fixtures, isolated runs, persisted
-trajectories, and verification results as ground truth. Benchmark results will be
-published only after the corresponding experiments have been run; CodeKeel does
-not treat a model's completion message as evidence of success.
-
-## Design Tradeoffs
-
-| Choice                               | Consequence                                                                              |
-| ------------------------------------ | ---------------------------------------------------------------------------------------- |
-| Explicit protocols                   | Components remain replaceable and testable in isolation                                  |
-| Linear control loop                  | Execution is easier to inspect, persist, and reason about                                |
-| Typed tools                          | Boundaries are clearer, but models must support structured tool calls                    |
-| Settled-step checkpoints             | Resume avoids replaying completed work, but cannot safely recover every in-flight action |
-| Separate local and Docker workspaces | Users can choose convenience or stronger isolation                                       |
-| Verification-based completion        | Success depends on configured repository checks, not model confidence                    |
-
-## Known Limitations
-
-- CLI resume supports local workspaces only.
-- An interrupted in-flight step requires inspection and cannot be replayed automatically.
-- `LocalWorkspace` is not a security boundary.
-- Completion is unchecked when no verification command is configured.
-- The CLI does not yet provide an authoritative changed-file count.
-- The current model adapter expects structured tool-calling support.
-
-## Roadmap
-
-- [x] Agent core, model contract, and LiteLLM adapter
-- [x] Typed filesystem and shell tools
-- [x] Local and Docker workspaces
-- [x] Repository context, output limits, and context compaction
-- [x] Events, checkpoints, and safe resume
-- [x] Planning, read-only exploration, approval, and verification
-- [x] Unified `run`, `inspect`, `resume`, `approve`, and `reject` CLI
-- [ ] Deterministic evaluation harness
-- [ ] Comparative configuration benchmarks
-- [ ] benchmark report
-- [ ] Multi-turn interactive terminal sessions, preserving the existing non-interactive CLI
+The approve and reject commands only record the decision; `resume` is what continues execution.
 
 ## Documentation
 
-Detailed guides and design documentation are being reorganized under `docs/`.
-Planned topics include model configuration, CLI usage, Python composition,
-architecture, tools, workspaces, security, context management, persistence,
-approval, verification, evaluation, benchmarks, and architecture decisions.
+For detailed design documents and explanations, see [docs](docs).
 
 ## Development
 
@@ -346,8 +130,231 @@ uv run ruff check .
 uv run pytest
 ```
 
-For Docker changes, with a running Docker daemon:
+Changes involving Docker require the Docker daemon to be running when executing:
 
 ```bash
 uv run pytest -m docker
 ```
+
+## Evaluate a Single Task
+
+### Prerequisites
+
+Recommended directory structure:
+
+```text
+workspace/
+├── codekeel-codex/
+└── SWE-bench/
+```
+
+The commands below assume that the two repositories are located under the same parent directory.
+
+### Install the Official SWE-bench Evaluator
+
+Run the following from the shared parent directory:
+
+```bash
+git clone https://github.com/swe-bench/SWE-bench
+cd SWE-bench
+uv venv
+uv pip install -e .
+git clone --depth 1 \
+  https://github.com/SWE-bench/swe-bench-tasks.git \
+  ./swe-bench-tasks
+```
+
+Check the task repository:
+
+```bash
+uv run swebench dataset check ./swe-bench-tasks
+```
+
+Expected output:
+
+```bash
+./swe-bench-tasks looks well formed
+```
+
+### Install CodeKeel Dependencies
+
+```bash
+cd ../codekeel-codex
+uv sync --group swebench
+```
+
+### Configure the Model API Key
+
+```bash
+export OPENROUTER_API_KEY="YOUR_API_KEY"
+```
+
+### Pin the SWE-bench Dataset Revision
+
+Query the current revision:
+
+```bash
+uv run python -c \
+  "from huggingface_hub import HfApi; print(HfApi().dataset_info('SWE-bench/SWE-bench', revision='main').sha)"
+```
+
+To make the evaluation reproducible, use a fixed revision for subsequent commands:
+
+```bash
+export SWEBENCH_REVISION="c6fe717fd7a4c3ac1daa4055a4fd082c6a1d28a2"
+```
+
+### View Available Tasks
+
+```bash
+uv run python -c \
+ "from datasets import load_dataset; d=load_dataset('SWE-bench/SWE-bench', revision='$SWEBENCH_REVISION', split='test');
+print('\n'.join(d['instance_id'][:20]))"
+```
+
+Select a task:
+
+```bash
+export TASK_ID="astropy__astropy-12057"
+```
+
+### Convert a SWE-bench Task
+
+```bash
+export DATASET_DIR="swebench/swebench-smoke-1"
+uv run codekeel eval-convert-swebench \
+  --instance-id "$TASK_ID" \
+  --revision "$SWEBENCH_REVISION" \
+  --output "$DATASET_DIR"
+```
+
+After conversion, the directory should look roughly like this:
+
+```text
+swebench/swebench-smoke-1/
+├── metadata.json
+├── astropy__astropy-12057.yaml
+└── repos/
+└── astropy__astropy-12057/
+```
+
+### Run the CodeKeel Evaluation
+
+Set the model:
+
+```bash
+export CODEKEEL_MODEL="openrouter/x-ai/grok-4.6"
+```
+
+Run with the full configuration:
+
+```bash
+uv run codekeel eval \
+  --dataset "$DATASET_DIR" \
+  --model "$CODEKEEL_MODEL" \
+  --config configs/full.yaml \
+  --root swebench/results
+```
+
+After completion, CodeKeel will generate a run directory similar to the following:
+
+```text
+swebench/results/<evaluation-id>/<run-id>/
+├── results.jsonl
+├── patches/
+│ └── astropy__astropy-12057.diff
+└── .agent/
+```
+
+Record the directory containing `results.jsonl` and `patches/`:
+
+```bash
+export CODEKEEL_RUN_DIR="swebench/results/<evaluation-id>/<run-id>"
+```
+
+Replace the placeholders with the actual directory generated by this run.
+
+You can verify that the patch exists:
+
+```bash
+ls "$CODEKEEL_RUN_DIR/patches/$TASK_ID.diff"
+```
+
+Note: CodeKeel's `success` or `verification_result` only reflects the local evaluation result and is not equivalent to the official SWE-bench `resolved` result.
+
+### Generate the Official predictions.jsonl
+
+Set the model identifier to submit to the evaluator. This field is only a public label and must not contain API keys, endpoints, or account information.
+
+```bash
+export SUBMISSION_MODEL_NAME="codekeel/grok-4.6"
+```
+
+Generate the official input:
+
+```bash
+uv run codekeel eval-export-swebench \
+  --dataset "$DATASET_DIR" \
+  --run "$CODEKEEL_RUN_DIR" \
+  --model-name "$SUBMISSION_MODEL_NAME" \
+  --output "$CODEKEEL_RUN_DIR/predictions.jsonl"
+```
+
+Check the file:
+
+```bash
+wc -l "$CODEKEEL_RUN_DIR/predictions.jsonl"
+head -n 1 "$CODEKEEL_RUN_DIR/predictions.jsonl"
+```
+
+A single-task evaluation should generate one JSONL line containing:
+
+```json
+{
+  "instance_id": "astropy\_\_astropy-12057",
+  "model_name_or_path": "codekeel/deepseek-v4-flash",
+  "model_patch": "<full patch text>"
+}
+```
+
+### Run the Official SWE-bench Evaluation
+
+Since the current directory is `SWE-bench/`, the prediction file generated by CodeKeel is located in the neighboring repository:
+
+```bash
+cd ../SWE-bench
+export PREDICTIONS_FILE="../codekeel-codex/$CODEKEEL_RUN_DIR/predictions.jsonl"
+```
+
+Run the single-task evaluation:
+
+```bash
+uv run swebench eval full \
+  --predictions "$PREDICTIONS_FILE" \
+  --instance "$TASK_ID" \
+  --run-id "codekeel-${TASK_ID}-001" \
+  --workers 1 \
+  --task-repo ./swe-bench-tasks
+```
+
+This may take some time. Please allow five to ten minutes for it to complete.
+
+### View the Official Results
+
+View the evaluation summary:
+
+```bash
+cat "logs/evaluation/codekeel-${TASK_ID}-001/results.json"
+```
+
+You can also regenerate the report without rerunning the container:
+
+```bash
+uv run swebench report "codekeel-${TASK_ID}-001" -d full
+```
+
+The final result should clearly record one of the following statuses:
+
+- resolved: The patch passes the tests required by the official evaluator.
+- unresolved: The patch was evaluated successfully but did not satisfy the test requirements.
+- evaluator error: An error occurred with the image, patch application, test environment, or evaluator.

@@ -66,8 +66,8 @@ async def test_deterministic_trajectory_order_payloads_and_run_isolation(tmp_pat
     assert {event.run_id for event in events} == {first_run}
     assert tool.calls == [first_run]
     assert events[0].payload.messages == state.messages[:2]
-    assert events[2].payload.messages == state.messages[:2]
-    assert events[9].payload.messages == state.messages[:4]
+    assert events[2].payload.messages[:-1] == state.messages[:2]
+    assert events[9].payload.messages[:-1] == state.messages[:4]
     assert events[3].payload.response == response()
     assert events[6].payload.call == response().tool_calls[0]
     assert events[7].payload.tool_call_id == "call-1"

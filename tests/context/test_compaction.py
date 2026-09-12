@@ -203,15 +203,15 @@ async def test_agent_120_turns_bounds_every_request_and_retains_original_events(
     tool = RecordingTool()
     agent = Agent(model, FakeWorkspace(), policy=ActionPolicy(tool_risks={"record": Risk.LOW}),
                   tool_registry=ToolRegistry([tool]),
-                  context_manager=manager(max_tokens=1500, max_message_chars=512, keep_recent_turns=2))
+                  context_manager=manager(max_tokens=1500, max_message_chars=512, keep_recent_turns=3))
     state = await agent.run("task")
     assert state.status is RunStatus.COMPLETED
     assert state.model_calls == 121 and state.tool_calls == 120
     assert state.usage.input_tokens == 120 and state.usage.output_tokens == 120
     assert tool.arguments[-1] == {"value": huge}
-    assert requests[-1][-4].tool_calls[0].id == "118"
-    assert requests[-1][-2].tool_calls[0].id == "119"
-    assert requests[-1][:2] == requests[0]
+    assert requests[-1][-5].tool_calls[0].id == "118"
+    assert requests[-1][-3].tool_calls[0].id == "119"
+    assert requests[-1][:2] == requests[0][:2]
     events = agent.event_store.read(agent.run_id).events
     recorded_requests = [event.payload.messages for event in events if event.type == "ModelRequested"]
     assert recorded_requests == requests

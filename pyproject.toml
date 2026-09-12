@@ -25,6 +25,11 @@ dev = [
     "ruff>=0.16.5",
 ]
 
+swebench = [
+    "datasets>=4.5.0",
+    "huggingface-hub>=0.34.0",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/codekeel"]
 

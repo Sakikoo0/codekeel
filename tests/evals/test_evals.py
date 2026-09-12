@@ -11,9 +11,11 @@ from typer.testing import CliRunner
 from codekeel.agent.state import AgentState, RunStatus
 from codekeel.cli import app
 from codekeel.evals.dataset import DatasetTask, Task, load_dataset
+from codekeel.evals.patch import PatchStatus
 from codekeel.evals.runner import run_dataset
 from codekeel.evals.scorer import score
 from codekeel.events.jsonl import JsonlEventStore
+from codekeel.events.models import ApprovalRequested, ToolFailed
 from codekeel.events.store import EventStoreError, TraceReadResult
 from codekeel.models.base import ModelResponse, ToolCall, Usage
 from codekeel.models.fake import FakeModel
@@ -70,6 +72,8 @@ async def test_three_deterministic_fixtures_and_persisted_metrics(tmp_path):
         assert item.steps == item.model_calls == item.verification_commands == 1
         assert item.tool_calls == 0 and item.input_tokens == 12 and item.output_tokens == 4
         assert item.cost == 0.02 and item.duration > 0
+        assert item.patch_status is PatchStatus.ERROR
+        assert item.patch_path is item.patch_sha256 is item.patch_bytes is None
         trace = JsonlEventStore(evaluation.directory).read(item.run_id)
         assert trace.warning is None and trace.events[0].type == "RunStarted"
         assert Path(item.trace_path).is_file()
@@ -157,6 +161,77 @@ async def test_step_limit_prevents_further_model_calls_and_no_verification_is_no
     result = evaluation.results[0]
     assert result.status is RunStatus.MAX_STEPS and result.model_calls == 1
     assert result.verification_result is None and not result.success
+
+
+@pytest.mark.parametrize("command", ["python check.py", "pip install package"])
+async def test_eval_returns_unavailable_approval_to_model_and_continues(tmp_path, command):
+    entry = load_dataset(FIXTURES / "pass.yaml")[0]
+    workspace = FakeWorkspace()
+    model = FakeModel([
+        ModelResponse(tool_calls=[ToolCall(id="needs-approval", name="shell", arguments={"command": command})]),
+        ModelResponse(tool_calls=[ToolCall(id="allowed", name="shell", arguments={"command": "echo recovered"})]),
+        ModelResponse(content="done"),
+    ])
+
+    evaluation = await run_dataset(
+        [entry], model_factory=lambda: model, workspace_factory=lambda _: workspace, root=tmp_path,
+    )
+
+    result = evaluation.results[0]
+    assert result.status is RunStatus.COMPLETED and result.success
+    assert [item[0] for item in workspace.commands] == ["echo recovered", entry.task.verification.command]
+    trace = JsonlEventStore(evaluation.directory).read(result.run_id)
+    assert not any(isinstance(event, ApprovalRequested) for event in trace.events)
+    failure = next(event for event in trace.events if isinstance(event, ToolFailed))
+    assert failure.payload.result is not None and failure.payload.result.is_error
+    assert "approval is unavailable" in failure.payload.result.content
+    assert command not in failure.payload.result.content
+
+
+async def test_eval_explicit_deny_is_not_reported_as_unavailable_approval(tmp_path):
+    entry = load_dataset(FIXTURES / "pass.yaml")[0]
+    workspace = FakeWorkspace()
+    model = FakeModel([
+        ModelResponse(tool_calls=[ToolCall(id="denied", name="shell", arguments={"command": "git push"})]),
+        ModelResponse(content="done"),
+    ])
+
+    evaluation = await run_dataset(
+        [entry], model_factory=lambda: model, workspace_factory=lambda _: workspace, root=tmp_path,
+    )
+
+    result = evaluation.results[0]
+    assert result.status is RunStatus.COMPLETED and result.success
+    assert [item[0] for item in workspace.commands] == [entry.task.verification.command]
+    trace = JsonlEventStore(evaluation.directory).read(result.run_id)
+    failure = next(event for event in trace.events if isinstance(event, ToolFailed))
+    assert failure.payload.result is not None
+    assert "explicitly denied" in failure.payload.result.content
+    assert "approval is unavailable" not in failure.payload.result.content
+
+
+async def test_eval_unavailable_approval_still_obeys_step_limit(tmp_path):
+    entry = load_dataset(FIXTURES / "pass.yaml")[0]
+    data = entry.task.model_dump()
+    data["limits"]["max_steps"] = 1
+    entry = DatasetTask(Task.model_validate(data), entry.source)
+    workspace = FakeWorkspace()
+    model = FakeModel([ModelResponse(tool_calls=[ToolCall(
+        id="needs-approval", name="shell", arguments={"command": "python check.py"},
+    )])])
+
+    evaluation = await run_dataset(
+        [entry], model_factory=lambda: model, workspace_factory=lambda _: workspace, root=tmp_path,
+    )
+
+    result = evaluation.results[0]
+    assert result.status is RunStatus.MAX_STEPS and not result.success
+    assert workspace.commands == []
+    trace = JsonlEventStore(evaluation.directory).read(result.run_id)
+    assert not any(isinstance(event, ApprovalRequested) for event in trace.events)
+    failure = next(event for event in trace.events if isinstance(event, ToolFailed))
+    assert failure.payload.result is not None
+    assert "approval is unavailable" in failure.payload.result.content
 
 
 async def test_model_deadline_and_cancellation_cleanup(tmp_path):
@@ -279,6 +354,7 @@ def test_completed_state_without_verification_evidence_cannot_score_success():
     state = AgentState(status=RunStatus.COMPLETED, verification_passed=True)
     result = score("example", "run", state, TraceReadResult(()), duration=0, trace_path=None)
     assert not result.success and result.verification_result is None
+    assert result.patch_status is PatchStatus.ERROR
 
 
 @pytest.mark.parametrize("name,exit_code", [("pass", 0), ("fail", 1), ("timeout", 1)])

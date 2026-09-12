@@ -6,6 +6,7 @@ from typer.testing import CliRunner
 
 from codekeel import __version__
 from codekeel.cli import app
+from codekeel.evals.swebench import DATASET_ID, PredictionExportSummary
 from codekeel.models import FakeModel, ModelResponse, ToolCall, Usage
 from codekeel.persistence.sqlite import SqliteCheckpointStore
 from codekeel.workspace import CommandResult, FileInfo
@@ -196,6 +197,68 @@ def test_unified_help():
         assert runner.invoke(app, [name, "--help"]).exit_code == 0
     for name in ("eval", "serve"):
         assert runner.invoke(app, [name]).exit_code == 2
+
+
+def test_export_swebench_predictions_cli_and_sanitized_failure(tmp_path, monkeypatch):
+    dataset = tmp_path / "dataset"
+    run = tmp_path / "run"
+    dataset.mkdir()
+    run.mkdir()
+    output = run / "predictions.jsonl"
+
+    def success(dataset_path, run_path, *, model_name, output):
+        assert dataset_path == dataset and run_path == run
+        assert model_name == "codekeel/test-model"
+        return PredictionExportSummary(
+            revision="a" * 40,
+            predictions=2,
+            empty_patches=1,
+            model_name_or_path=model_name,
+            output=str(output),
+        )
+
+    monkeypatch.setattr("codekeel.evals.swebench.export_swebench_predictions", success)
+    arguments = [
+        "eval-export-swebench", "--dataset", str(dataset), "--run", str(run),
+        "--model-name", "codekeel/test-model", "--output", str(output),
+    ]
+    result = runner.invoke(app, arguments)
+    assert result.exit_code == 0 and result.stderr == ""
+    assert json.loads(result.stdout) == {
+        "dataset": DATASET_ID,
+        "revision": "a" * 40,
+        "predictions": 2,
+        "empty_patches": 1,
+        "model_name_or_path": "codekeel/test-model",
+        "output": str(output),
+    }
+
+    def failure(*args, **kwargs):
+        raise RuntimeError("API_KEY=secret\x1b[31m")
+
+    monkeypatch.setattr("codekeel.evals.swebench.export_swebench_predictions", failure)
+    failed = runner.invoke(app, arguments)
+    assert failed.exit_code == 1 and failed.stdout == ""
+    assert "check metadata" in failed.stderr
+    assert "secret" not in failed.output and "\x1b" not in failed.output
+
+    help_result = runner.invoke(app, ["eval-export-swebench", "--help"])
+    assert help_result.exit_code == 0
+    assert all(option in help_result.output for option in ("--dataset", "--run", "--model-name", "--output"))
+
+
+@pytest.mark.parametrize(("outcome", "exit_code"), [(True, 0), (False, 1), (RuntimeError("secret"), 1)])
+def test_internal_swebench_patch_verification_command_is_silent(monkeypatch, outcome, exit_code):
+    def verify(repository, base_commit):
+        assert repository == Path.cwd() and base_commit == "a" * 40
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    monkeypatch.setattr("codekeel.evals.swebench.verify_swebench_patch", verify)
+    result = runner.invoke(app, ["eval-verify-swebench-patch", "--base-commit", "a" * 40])
+    assert result.exit_code == exit_code
+    assert result.stdout == "" and result.stderr == ""
 
 
 def test_provider_construction_failure_closes_workspace(cli, monkeypatch):

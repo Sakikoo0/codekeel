@@ -45,6 +45,7 @@ class LiteLLMModel:
         }
         if tools is not None:
             request["tools"] = [_tool_to_provider(tool) for tool in tools]
+            request["parallel_tool_calls"] = False  # The agent executes exactly one action per model step.
         if self.api_base is not None:
             request["api_base"] = self.api_base
         if self.temperature is not None:

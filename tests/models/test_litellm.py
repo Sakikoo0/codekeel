@@ -64,6 +64,7 @@ async def test_litellm_model_converts_text_response_and_forwards_config(monkeypa
         temperature=0.25,
         max_tokens=512,
         messages=[{"role": "user", "content": "finish"}],
+        parallel_tool_calls=False,
         tools=[
             {
                 "type": "function",
@@ -117,6 +118,7 @@ async def test_litellm_model_round_trips_tool_messages_and_calls(monkeypatch):
         },
         {"role": "tool", "content": "files", "tool_call_id": "call-1"},
     ]
+    assert "parallel_tool_calls" not in completion.await_args.kwargs
 
 
 async def test_litellm_model_propagates_provider_failure(monkeypatch):

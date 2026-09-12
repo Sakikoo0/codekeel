@@ -114,7 +114,8 @@ async def test_output_toggle_reaches_next_model_request(dataset, tmp_path):
                                    root=tmp_path / "out",
                                    config=ExperimentConfig(name="test", tool_output_limits=enabled))
         assert result.results[0].success
-        content = ToolResult.model_validate_json(observed[-1][-1].content).content
+        result_message = next(m for m in reversed(observed[-1]) if m.role == "tool")
+        content = ToolResult.model_validate_json(result_message.content).content
         assert (len(content) <= 10000) == enabled
 
 

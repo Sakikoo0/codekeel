@@ -1,6 +1,7 @@
 """Minimal bounded linear coding-agent control loop."""
 
 import asyncio
+import json
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -45,7 +46,22 @@ from codekeel.tools.explorer import DelegateExploreTool
 from codekeel.tools.shell import ShellTool
 from codekeel.workspace.base import Workspace
 
-_DEFAULT_SYSTEM_PROMPT = "You are a coding agent. Use the available tools when needed, then return a final answer."
+_DEFAULT_SYSTEM_PROMPT = (
+    "You are CodeKeel, a coding agent. Use the available tools when needed, then return a final answer. "
+    "Each response may contain at most one tool call. When using a tool, make exactly one tool call "
+    "and wait for its result before calling another tool in a later response. "
+    "If multiple tools are needed, call them one at a time across separate responses. "
+    "When the task is complete, return a final answer with no tool calls."
+    "\n\nFor implementation tasks, inspect relevant code, identify a concrete hypothesis, reproduce the issue "
+    "with a focused check when possible, make a minimal change, then verify it. "
+    "Treat suggested workarounds as hypotheses, not proof of a correct fix. "
+    "After editing, prioritize targeted tests and reviewing the diff over broad exploration. "
+    "If update_plan is available, use a short plan for multi-step work and keep it current at milestones. "
+    "A completed plan or successful edit is not verification evidence. "
+    "Use the runtime budget reminders to leave room for verification and a final response. "
+    "In your final response, describe changes, checks actually run, and any failures or unverified work. "
+    "Never claim tests passed or the task is complete merely because the budget is low."
+)
 
 
 class AgentProtocolError(ValueError):
@@ -411,12 +427,23 @@ class Agent:
             assessment = self.policy.assess(action)
             if assessment.decision is Decision.DENY or approved is False:
                 reason = "Action denied by policy." if approved is not False else "Action rejected by user."
+                if assessment.decision is Decision.DENY and approved is not False and assessment.reason:
+                    reason += " " + assessment.reason
                 result = ToolResult(content=reason, is_error=True)
             elif assessment.decision is Decision.REQUIRE_APPROVAL and approved is None:
-                self.pending_approval = PendingApproval(call=action.model_copy(deep=True), risk=assessment.risk)
-                self.state.status = RunStatus.WAITING_FOR_APPROVAL
-                self._emit(ApprovalRequested, **self.pending_approval.model_dump())
-                return
+                if self.policy.approval_handling == "unavailable":
+                    result = ToolResult(
+                        content=(
+                            "Action requires approval, but approval is unavailable in this non-interactive "
+                            "environment. The action was not executed. Use an action allowed by policy."
+                        ),
+                        is_error=True,
+                    )
+                else:
+                    self.pending_approval = PendingApproval(call=action.model_copy(deep=True), risk=assessment.risk)
+                    self.state.status = RunStatus.WAITING_FOR_APPROVAL
+                    self._emit(ApprovalRequested, **self.pending_approval.model_dump())
+                    return
             else:
                 result = await self._execute_tool_with_deadline(action)
         except TimeoutError:
@@ -593,16 +620,58 @@ class Agent:
         self._emit(PlanUpdated, plan=plan)
         self.plan = plan
 
-    def _set_prepared(self, prepared: list[Message], reminder: Message | None) -> None:
-        if reminder is not None and (not prepared or prepared[-1] != reminder):
-            raise ContextHistoryError("Context manager must preserve the current plan reminder")
+    def _budget_reminder(self) -> Message:
+        """Trusted counters only; transient request context, never accumulated history."""
+        assert self._started_at is not None
+        limits = self.termination_policy.budgets
+        used = {
+            "steps": self.state.steps + self.state.explorer_steps,
+            "model_calls": self.state.model_calls,
+            "tool_calls": self.state.tool_calls + self.state.explorer_tool_calls + self.state.verification_commands,
+            "input_tokens": self.state.usage.input_tokens,
+            "output_tokens": self.state.usage.output_tokens,
+            "cost": self.state.usage.cost,
+            "wall_time": max(0.0, self.termination_policy.clock() - self._started_at),
+        }
+        budgets = {}
+        closing = False
+        last_response = False
+        for name, spent in used.items():
+            limit = getattr(limits, f"max_{name}")
+            if limit is None:
+                continue
+            remaining = max(0, limit - spent)
+            budgets[name] = {"used": round(spent, 3), "limit": limit, "remaining": round(remaining, 3)}
+            closing |= remaining <= limit * 0.25
+            last_response |= name in {"steps", "model_calls"} and remaining <= 1
+        guidance = "Reserve time and calls for focused verification and a final response."
+        if closing:
+            guidance = (
+                "Budget is low: prioritize verifying existing changes and wrapping up; avoid broad new exploration. "
+                "Report unfinished or unverified work honestly."
+            )
+        if last_response:
+            guidance += " This is the last available main response slot; a tool call leaves no next response slot."
+        return Message(role="user", content=(
+            "Runtime budget reminder (before this response; remaining slots include this response). "
+            "Unlisted limits are disabled.\n"
+            + json.dumps(budgets, separators=(",", ":")) + "\n" + guidance
+            + (" A final response triggers configured runtime verification; it does not guarantee success."
+               if self.verification_policy is not None else "")
+        ))
+
+    def _set_prepared(self, prepared: list[Message], reminders: list[Message]) -> None:
+        if prepared[-len(reminders):] != reminders:
+            raise ContextHistoryError("Context manager must preserve the current plan reminder and budget reminder")
         self._request_messages = prepared
-        self.state.messages = prepared[:-1] if reminder is not None else prepared
+        self.state.messages = prepared[:-len(reminders)]
 
     async def _prepare_context(self, definitions: list[ToolDefinition]) -> None:
         manager = self.context_manager
-        reminder = self.plan.reminder() if self.plan is not None else None
-        history = [*self.state.messages, reminder] if reminder is not None else self.state.messages
+        reminders = [self._budget_reminder()]
+        if self.plan is not None:
+            reminders.append(self.plan.reminder())
+        history = [*self.state.messages, *reminders]
         limit = self.termination_policy.budgets.max_model_calls
         # Reserve the pending main request. With only one slot left, use the
         # deterministic path rather than silently exceeding the parent's ceiling.
@@ -625,14 +694,22 @@ class Agent:
                 self._emit(ModelResponded, model_call=self.state.model_calls, response=response)
                 self._emit(BudgetUpdated, **self._budget_payload())
                 prepared = manager.apply_summary(request, response)
+                if prepared[-len(reminders):] != reminders:
+                    raise ContextHistoryError(
+                        "Context manager must preserve the current plan reminder and budget reminder"
+                    )
+                # Summary calls share the budget; refresh the reminder without changing durable
+                # history until the compaction event is safely recorded.
+                reminders[0] = self._budget_reminder()
+                prepared = manager.prepare([*prepared[:-len(reminders)], *reminders], tools=definitions)
                 self._emit(
                     ContextCompacted, before_estimated_tokens=request.before_estimated_tokens,
                     after_estimated_tokens=estimate_context_tokens(prepared, definitions),
                     messages_removed=request.messages_removed, summary_model_calls=1,
                 )
-                self._set_prepared(prepared, reminder)
+                self._set_prepared(prepared, reminders)
                 return
-        self._set_prepared(manager.prepare(history, tools=definitions), reminder)
+        self._set_prepared(manager.prepare(history, tools=definitions), reminders)
 
     async def _complete_with_deadline(
         self, definitions: list[ToolDefinition], *, model: Model | None = None, messages: list[Message] | None = None,

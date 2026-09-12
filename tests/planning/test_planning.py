@@ -138,7 +138,7 @@ async def test_runs_and_shared_registry_do_not_share_plans():
     await first.run("new task")
     assert first.plan is None and changes(first) == []
     request = next(e for e in first.event_store.read(first.run_id).events if e.type == "ModelRequested")
-    assert request.payload.messages[-1].content == "new task"
+    assert request.payload.messages[-2].content == "new task"
     second = agent([ModelResponse(content="done")], tool_registry=registry)
     await second.run("other run")
     assert second.plan is None

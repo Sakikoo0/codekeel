@@ -16,11 +16,13 @@ from codekeel.agent.state import AgentState, RunStatus
 from codekeel.context.repo import discover_repo_context
 from codekeel.evals.config import ExperimentConfig, configure_agent
 from codekeel.evals.dataset import DatasetTask
+from codekeel.evals.patch import PatchArtifact, PatchExportError, capture_base_commit, export_patch
 from codekeel.evals.scorer import EvaluationResult, score
 from codekeel.events.jsonl import JsonlEventStore
 from codekeel.events.store import EventStoreError, TraceReadResult
 from codekeel.models.base import Model
 from codekeel.runtime.budgets import BudgetLimits
+from codekeel.runtime.policy import ActionPolicy
 from codekeel.runtime.verification import VerificationPolicy
 from codekeel.tools.registry import ToolRegistry, default_tool_registry
 from codekeel.tools.shell import ShellConfig, ShellTool
@@ -71,6 +73,8 @@ async def run_dataset(
     root.mkdir(parents=True, exist_ok=True)
     directory = Path(tempfile.mkdtemp(prefix="eval-", dir=root))
     events = JsonlEventStore(directory)
+    patches = directory / "patches"
+    patches.mkdir()
     results: list[EvaluationResult] = []
     with (directory / "results.jsonl").open("x", encoding="utf-8") as output:
         for entry in tasks:
@@ -78,10 +82,17 @@ async def run_dataset(
             agent = None
             workspace = None
             error = None
+            copied = None
+            base_commit = None
+            patch = PatchArtifact.error()
             with tempfile.TemporaryDirectory(prefix="codekeel-eval-workspace-") as temporary:
                 try:
                     copied = Path(temporary) / "repo"
                     _copy_repository(entry.repository(), copied)
+                    try:
+                        base_commit = capture_base_commit(copied)
+                    except PatchExportError:
+                        pass
                     workspace = workspace_factory(copied)
                     registry = default_tool_registry()
                     registry = ToolRegistry([
@@ -92,6 +103,7 @@ async def run_dataset(
                         model_factory(), workspace, event_store=events, tool_registry=registry,
                         budgets=BudgetLimits(max_steps=entry.task.limits.max_steps,
                                              max_wall_time=entry.task.limits.timeout),
+                        policy=ActionPolicy(approval_handling="unavailable"),
                         verification_policy=VerificationPolicy(test_command=entry.task.verification.command,
                                                                max_verification_attempts=1),
                     )
@@ -108,6 +120,11 @@ async def run_dataset(
                     # Do not copy provider exception text (possibly secrets) into metrics.
                     error = "task_execution_failed"
                 finally:
+                    if copied is not None and base_commit is not None:
+                        try:
+                            patch = export_patch(copied, base_commit, patches / f"{entry.task.id}.diff")
+                        except PatchExportError:
+                            patch = PatchArtifact.error()
                     if workspace is not None:
                         await workspace.close()
             run_id = agent.run_id if agent is not None else None
@@ -115,7 +132,7 @@ async def run_dataset(
             trace = events.read(run_id) if run_id is not None else TraceReadResult(())
             trace_path = str(directory / ".agent" / "runs" / run_id / "events.jsonl") if run_id else None
             result = score(entry.task.id, run_id or uuid4().hex, state, trace,
-                           duration=time.monotonic() - started, trace_path=trace_path, error=error)
+                           duration=time.monotonic() - started, trace_path=trace_path, error=error, patch=patch)
             output.write(result.model_dump_json() + "\n")
             output.flush()
             os.fsync(output.fileno())

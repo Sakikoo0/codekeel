@@ -189,7 +189,11 @@ def make_agent(*, summarizer=None, budgets=None, count=3, **kwargs):
     summarizer = summarizer if summarizer is not None else FakeModel([summary_response() for _ in range(count)])
     summarizer.complete = AsyncMock(wraps=summarizer.complete)
     tool = RecordingTool()
-    agent = Agent(model, FakeWorkspace(), context_manager=SummarizingContextManager(config(), model=summarizer),
+    # A short fixed prompt isolates compaction timing from workflow wording. The
+    # transient reminder occupies one pending turn and is included in the budget.
+    agent = Agent(model, FakeWorkspace(), system_prompt="rules",
+                  context_manager=SummarizingContextManager(
+                      ContextConfig(max_tokens=1000, keep_recent_turns=2), model=summarizer),
                   policy=ActionPolicy(tool_risks={"record": Risk.LOW}),
                   tool_registry=ToolRegistry([tool]), budgets=budgets, **kwargs)
     return agent, model, summarizer, tool
@@ -217,12 +221,22 @@ async def test_agent_continues_and_compaction_event_matches_actual_context(tmp_p
     )
     assert len(events(agent, "ModelRequested")) == len(events(agent, "ModelResponded")) == 5
     assert events(agent, "ToolCompleted")[0].payload.result.content == "x" * 1000
+    assert not any((m.content or "").startswith("Runtime budget reminder") for m in state.messages)
+
+
+async def test_summary_refreshes_budget_before_last_main_response():
+    agent, _, _, _ = make_agent(budgets=BudgetLimits(max_model_calls=5))
+    await agent.run("Fix tests")
+    reminder = events(agent, "ModelRequested")[-1].payload.messages[-1].content
+    assert json.loads(reminder.splitlines()[1])["model_calls"] == {"used": 4, "limit": 5, "remaining": 1}
+    assert "last available main response slot" in reminder
 
 
 async def test_same_model_is_used_when_no_dedicated_summarizer_is_injected():
     model = FakeModel([ModelResponse(tool_calls=[ToolCall(id=str(i), name="record")]) for i in range(3)]
                       + [summary_response(), ModelResponse(content="done")])
-    agent = Agent(model, FakeWorkspace(), context_manager=SummarizingContextManager(config()),
+    agent = Agent(model, FakeWorkspace(), system_prompt="rules", context_manager=SummarizingContextManager(
+        ContextConfig(max_tokens=1000, keep_recent_turns=2)),
                   policy=ActionPolicy(tool_risks={"record": Risk.LOW}), tool_registry=ToolRegistry([RecordingTool()]))
     assert (await agent.run("Fix tests")).status is RunStatus.COMPLETED
     assert agent.state.model_calls == 5 and len(events(agent, "ContextCompacted")) == 1

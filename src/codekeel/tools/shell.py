@@ -148,7 +148,13 @@ class ShellTool:
     config: ShellConfig = field(default_factory=ShellConfig)
     name: str = "shell"
     description: str = (
-        "Run a bounded command in the workspace. This policy is a guardrail, not a security boundary."
+        "Run a bounded command in the workspace. Default agent policy requires one simple single-line command: "
+        "no heredocs, pipes, redirections, command chaining, expansions or special characters, even inside quotes. "
+        "Use file tools when available to read, search, write or edit files. For scripts, write the file first; "
+        "execution still requires an allowed command. Default policy permits bounded history lookup as "
+        "git log --oneline -5 -- path/to/file; other git log forms may require approval. "
+        "Commands run from the configured workspace directory; do not assume /workspace exists. "
+        "This policy is a guardrail, not a security boundary."
     )
 
     def definition(self) -> ToolDefinition:
